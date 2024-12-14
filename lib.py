@@ -663,18 +663,18 @@ class Result:
 		ll['price'] = ll.cost / ll.num
 		return ll
 
-	def combomap(self, other):
-		layouts = [(i, i.layout.keyboard.key_coords()) for i in (self, other)]
+	def combomap(self, *others):
+		layouts = [(i, i.layout.keyboard.key_coords()) for i in (self, *others)]
 		width = max(i[1][1] for i in layouts)
 		all_heights = sum(i[1][2] for i in layouts) + 1
-		fig, axes = plt.subplots(2, 1, figsize=(width, all_heights))
+		fig, axes = plt.subplots(len(layouts), 1, figsize=(width, all_heights))
 
 		ll = pd.concat([i[0].bigrams for i in layouts])
 		min_cost = ll['cost'].min() ** .5
 		max_cost = ll['cost'].max() ** .5
 		max_num = ll['num'].max() ** .5
 
-		plt.text(width / 2, all_heights / 2 + .5, 'Layouts comparison.\nArrow size = frequency, color = total cost.\nKey size = its bigrams cost, color = mean price.\nScales are the same.',
+		plt.text(width / 2, all_heights / len(layouts) + .5, 'Layouts comparison.\nArrow size = frequency, color = total cost.\nKey size = its bigrams cost, color = mean price.\nScales are the same.',
 			 size=14, ha='center')
 
 		for (result, (all_coords, width, height)), ax in zip(layouts, axes):
