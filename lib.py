@@ -35,9 +35,9 @@ STANDARD_PENALTIES = '''
 # min(standard, 1) for non-home row
 # STANDARD_PENALTIES = """
 # 642246 6422246
-# 422224 42002246
+# 422224 43112246
 #  00002 2000024
-#  22224 42222
+#  11114 41111
 # 0
 # """
 
@@ -515,7 +515,7 @@ class Result:
 		bigram_df = corpus.bigrams.copy()
 
 		# taking the text of keyboard layout and encode it into keymap a dataframe
-		bigram_df['price_l2'] = bigram_df.l2.apply(layout.get_monogram_cost) 
+		bigram_df['price_l2'] = bigram_df.l2.apply(layout.get_monogram_cost)
 
 		# calculate bigrams cost
 		bigram_df[['price_di', 'category']] = bigram_df.bigram.apply(lambda d: pd.Series(layout.get_bigram_cost(d)))
@@ -578,7 +578,7 @@ class Result:
 	def show_arrows(self, ax=None, max_num=None, costs=None):
 		letters = self.bigrams[['column', 'row', 'num', 'cost']].groupby(['column', 'row']).agg({'num': 'sum', 'cost': 'sum'})
 		maxnum = letters['num'].max()
-		maxcost = letters['cost'].max()
+		maxcost = (letters['cost'] / letters['num']).max()
 
 		pairs = self.bigrams
 		km = self.layout.keymap
@@ -608,7 +608,7 @@ class Result:
 			if (ic, ir) not in letters.index:
 				continue
 			row = letters.loc[(ic, ir)]
-			color = color_scale(row['cost'], 0, maxcost, plt.cm.rainbow)
+			color = color_scale(row['cost'] / row['num'], 0, maxcost, plt.cm.rainbow)
 			n = (row['num'] / maxnum)
 			X = x - minx + 1
 			Y = height + miny - y - .5
@@ -670,8 +670,8 @@ class Result:
 		fig, axes = plt.subplots(len(layouts), 1, figsize=(width, all_heights))
 
 		ll = pd.concat([i[0].bigrams for i in layouts])
-		min_cost = ll['cost'].min() ** .5
-		max_cost = ll['cost'].max() ** .5
+		min_cost = (ll['cost'] / ll['num']).min() ** .5
+		max_cost = (ll['cost'] / ll['num']).max() ** .5
 		max_num = ll['num'].max() ** .5
 
 		plt.text(width / 2, all_heights / len(layouts) + .5, 'Layouts comparison.\nArrow size = frequency, color = total cost.\nKey size = its bigrams cost, color = mean price.\nScales are the same.',
