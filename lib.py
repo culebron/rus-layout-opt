@@ -72,10 +72,14 @@ class Corpus:
 		return Corpus(bigrams)
 		
 	# simple function that reads the corpus and creates a bigram table.
-	def from_path(path):
+	def from_path(*paths):
 		"""Reads file from path and calculates bigrams frequencies."""
-		with open(path) as f:
-			return Corpus.from_string(f.read())
+		t = ''
+		for path in paths:
+			with open(path) as f:
+				t += f.read()
+		
+		return Corpus.from_string(t)
 	
 	def display_outerness(self, filter_expr, left_hand=False):
 		"""Provide a `filter_expr` to filter the bigrams of the corpus,
@@ -499,11 +503,10 @@ class Layout:
 			keycaps[(r['row'], r['column'])].append(k)
 		return keycaps
 
-	def display(self):
+	def display(self, what=None):
 		"""
 		Shows the layout with the keyboard.
 		"""
-		
 		colors = self.keymap.groupby(['row', 'column']).agg({'finger': 'first'})['finger'].apply(lambda f:
 				 lighten_color(plt.cm.Set3((f + (f % 2) * 10) / 20), .5)).to_dict()
 		self.keyboard.raw_display(self.keycaps(), colors, f"{self.name} layout with finger zones")
