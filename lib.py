@@ -25,12 +25,21 @@ STANDARD_FINGERS = '''
 ''' 
 
 STANDARD_PENALTIES = '''
-753246 6422246
-321134 43112357
- 00002 2000023
- 11114 41111
+864246 6424579
+432134 43123579
+ 10002 2000135
+ 21114 41112
 0
 '''
+
+# before 21.12.24
+# STANDARD_PENALTIES = '''
+# 753246 6422246
+# 321134 43112357
+#  00002 2000023
+#  11114 41111
+# 0
+# '''
 
 # min(standard, 1) for non-home row
 # STANDARD_PENALTIES = """
@@ -468,6 +477,8 @@ class Layout:
 			(k1.hand != k2.hand, 0, 'altern hands'),
 			(l1 == l2, 0, 'same key'),
 
+			(abs(k2.row - k1.row) >= 2 and k1.ftype == k2.ftype == 4, 12, 'pinky over row'),
+			(k1.ftype == k2.ftype == 4, 10, 'pinky adj row'),
 			(abs(k2.row - k1.row) >= 2 and k1.ftype == k2.ftype, 8, 'same finger over row'),
 			(k1.ftype == k2.ftype, 6, 'same finger adj row'),
 
@@ -511,6 +522,124 @@ class Layout:
 				 lighten_color(plt.cm.Set3((f + (f % 2) * 10) / 20), .5)).to_dict()
 		self.keyboard.raw_display(self.keycaps(), colors, f"{self.name} layout with finger zones")
 
+	def export(self):
+		cyr = '''
+		а a
+		б be
+		в ve
+		г ghe
+		д de
+		е ie
+		ё io
+		ж zhe
+		з ze
+		и i
+		й shorti
+		к ka
+		л el
+		м em
+		н en
+		о o
+		п pe
+		р er
+		с es
+		т te
+		у u
+		ф ef
+		х ha
+		ц tse
+		ч che
+		ш sha
+		щ shcha
+		ъ hardsign
+		ы yeru
+		ь softsign
+		э e
+		ю yu
+		я ya
+		'''
+
+		LETS = {}
+		for c in cyr.strip().split('\n'):
+			letter, name = c.strip().split(' ')
+			LETS[letter] = f'Cyrillic_{name}'
+			LETS[letter.upper()] = f'Cyrillic_{name.upper()}'
+
+		names = r'''
+		` backtick
+		~ tilde
+		! exclam
+		@ at
+		# numbersign
+		№ numerosign
+		$ dollar
+		% percent
+		^ asciicircum
+		& ampersand
+		* asterisk
+		( parenleft
+		) parenright
+		[ bracketleft
+		] bracketright
+		{ braceleft
+		} braceright
+		' apostrophe
+		" quotedbl
+		, comma
+		< less
+		. period
+		> greater
+		/ slash
+		? question
+		= equal
+		+ plus
+		\ backslash
+		| bar
+		- minus 
+		_ underscore
+		; semicolon
+		: colon
+		'''
+
+		NAMES_DICT = dict(i.strip().split(' ') for i in names.strip().split('\n'))
+
+		EXCL_POS = {
+			(0, 0): 'TLDE',
+			(1, 13): 'BKSL',
+		}
+
+
+		rows = ''
+
+		row_names = 'EDCB'
+		for (r, c), df in self.keymap.sort_values(['row', 'column', 'layer']).groupby(['row', 'column']):
+			if r > 3: continue
+			if c > 6: c -= 1
+			y = df.reset_index().set_index('layer')
+			pos_name = EXCL_POS[(r, c)] if (r, c) in EXCL_POS else f'A{row_names[r]}{c:02d}'	
+			
+			key_recs = []
+			for layer, data in y.iterrows():
+				if layer not in y.index: continue
+				k = data['index']
+				if k in LETS:
+					key_recs.append(f"{LETS[k]}, {LETS[k.upper()]}")
+				elif data['index'] in NAMES_DICT:
+					key_recs.append(NAMES_DICT[k])
+				elif k in '1234567890':
+					key_recs.append(k)
+				
+			if len(key_recs) == 0: continue
+			rows += f'\tkey <{pos_name}> {{ [ ' + ', '.join(key_recs) + ' ] };\n'
+		
+		print(f'''
+	default partial alphanumeric_keys
+	xkb_symbols "v37" {{
+		include "ru(common)"
+		name[Group1]= "Culebron ({self.name})";
+		{rows}
+	}};
+	''')
 
 class Result:
 	# Gets the cost for input KBD text, bigrams & fingers maps
