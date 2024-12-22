@@ -25,10 +25,10 @@ STANDARD_FINGERS = '''
 ''' 
 
 STANDARD_PENALTIES = '''
-985246 6425679
-863134 43134789
- 21002 2001257
- 42114 41123
+863246 6423689
+642134 43124689
+ 21002 2001246
+ 42114 41124
 0
 '''
 
@@ -634,7 +634,7 @@ class Layout:
 		
 		print(f'''
 	default partial alphanumeric_keys
-	xkb_symbols "v37" {{
+	xkb_symbols "{self.name}" {{
 		include "ru(common)"
 		name[Group1]= "Culebron ({self.name})";
 		{rows}
@@ -697,7 +697,7 @@ class Result:
 				max_num = nums.max()
 				colors = nums.apply(color_scale, args=(min_num, max_num, plt.cm.viridis))
 				self.layout.keyboard.raw_display(
-					np.log(nums).round(1).to_dict(), colors.to_dict(), f'{self.layout.name} frequencies (on 2nd keys of bigrams)')
+					nums.to_dict(), colors.to_dict(), f'{self.layout.name} frequencies (on 2nd keys of bigrams)')
 
 			elif show_arrows:
 				_, width, height = self.layout.keyboard.key_coords()
