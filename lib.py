@@ -59,11 +59,18 @@ STANDARD_PENALTIES = '''
 # 0
 # """
 
+def map_letter_types(letter, types):
+	for letters, tp in types:
+		if letter in letters:
+			return tp
+
+	return '-'
+
 class Corpus:
 	def __init__(self, bigrams):
 		self.bigrams = bigrams
 		
-	def from_string(raw_text):
+	def from_string(raw_text, types=None):
 		# we take text and encode it, replacing space, linebreak and tab with displayable surrogates.
 		# (layouts are encoded with spaces and linebreaks as separators, so this way we won't confuse them)
 		text = raw_text.lower().replace(' ', '⌴').replace('\n', '¶').replace('\t', '→')
@@ -75,20 +82,22 @@ class Corpus:
 		bigrams = pd.DataFrame(nums.items(), columns=['bigram', 'num'])
 		bigrams['l1'] = bigrams.bigram.str[:1]
 		bigrams['l2'] = bigrams.bigram.str[1:]
+
+		letter_types = [(v, k) for k, v in (types if types is not None else VOW_CONS_RU).items()]
 		for i in (1, 2):
-			bigrams[f't{i}'] = bigrams[f'l{i}'].map(lambda l: 'v' if l.lower() in VOW_CONS_RU['v'] else ('c' if l.lower() in VOW_CONS_RU['c'] else '-'))
+			bigrams[f't{i}'] = bigrams[f'l{i}'].apply(map_letter_types, types=letter_types)
 		bigrams['freq'] = bigrams.num / bigrams.num.sum()
 		return Corpus(bigrams)
 		
 	# simple function that reads the corpus and creates a bigram table.
-	def from_path(*paths):
+	def from_path(*paths, types=None):
 		"""Reads file from path and calculates bigrams frequencies."""
 		t = ''
 		for path in paths:
 			with open(path) as f:
 				t += f.read()
 		
-		return Corpus.from_string(t)
+		return Corpus.from_string(t, types=types)
 	
 	def display_outerness(self, filter_expr, left_hand=False):
 		"""Provide a `filter_expr` to filter the bigrams of the corpus,
@@ -677,7 +686,7 @@ class Result:
 			show_arrows = what in ('arrow', 'arrows')
 
 			if show_rows:
-				b = self.bigrams
+				b = self.bigrams[self.bigrams.l1 != self.bigrams.l2] # exclude same letter pairs
 				t1 = b.rename(columns={'l1': 'letter', 'l2': 'other'}).groupby(['letter', 'other']).agg({'num': 'sum'}).reset_index()
 				t2 = b.rename(columns={'l2': 'letter', 'l1': 'other'}).groupby(['letter', 'other']).agg({'num': 'sum'}).reset_index()
 
@@ -691,19 +700,23 @@ class Result:
 				caps = stats5.groupby(['row', 'column']).agg({'letter': 'first'})['letter'].to_dict()
 
 				stats7 = stats6.melt(ignore_index=False).reset_index().pivot_table('value', ['row', 'column'], 'row_other')
+				max_combos = stats7.max().max()
+
 				cc = self.layout.keymap['column']
 
 				fig, axs = plt.subplots(4, cc.max(), figsize=(12, 6))
+				fig.suptitle(f'Keys gravitation for {self.layout.name}')
 				plt.subplots_adjust(hspace=1)
 				for row, axrow in enumerate(axs):
 					for col, ax in enumerate(axrow):
 						ax.axis('off')
 						if (row, col) not in caps:
 							continue
+						ax.set_xlim(1, max_combos)
 						title = caps[(row, col)]
 						D = stats7.loc[(row, col)]
 						vals = [D[1], D[2], D[3]]
-						ax.barh((3, 2, 1), vals, log=True)
+						ax.barh((3, 2, 1), vals)
 						ax.set_title(title)
 		
 			elif show_layout:
