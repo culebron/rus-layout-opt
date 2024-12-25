@@ -670,12 +670,43 @@ class Result:
 
 	def display(self, *items):
 		for what in items:
+			show_rows = what == 'rows'
 			show_layout = what == 'layout'
 			show_costs = what in ('cost', 'costs')
 			show_nums = what in ('freq', 'frequencies', 'num', 'nums')
 			show_arrows = what in ('arrow', 'arrows')
 
-			if show_layout:
+			if show_rows:
+				b = self.bigrams
+				t1 = b.rename(columns={'l1': 'letter', 'l2': 'other'}).groupby(['letter', 'other']).agg({'num': 'sum'}).reset_index()
+				t2 = b.rename(columns={'l2': 'letter', 'l1': 'other'}).groupby(['letter', 'other']).agg({'num': 'sum'}).reset_index()
+
+				stats = pd.concat([t1, t2]).groupby(['letter', 'other']).agg({'num': 'sum'}).reset_index()
+				keys = self.layout.keymap[['row', 'column', 'hand', 'layer']].reset_index()
+				stats2 = stats.merge(keys, left_on='letter', right_on='index')
+				stats3 = stats2.merge(keys, left_on='other', right_on='index', suffixes=('', '_other'))
+				stats4 = stats3[(stats3.hand == stats3.hand_other) & (stats3.row <= 3) & (stats3.row_other <= 3)].sort_values('layer')
+				stats5 = stats4.groupby(['row', 'column', 'row_other']).agg({'letter': 'first', 'num': 'sum'}).reset_index()
+				stats6 = stats5.pivot_table('num', ['row', 'row_other'], 'column')
+				caps = stats5.groupby(['row', 'column']).agg({'letter': 'first'})['letter'].to_dict()
+
+				stats7 = stats6.melt(ignore_index=False).reset_index().pivot_table('value', ['row', 'column'], 'row_other')
+				cc = self.layout.keymap['column']
+
+				fig, axs = plt.subplots(4, cc.max(), figsize=(12, 6))
+				plt.subplots_adjust(hspace=1)
+				for row, axrow in enumerate(axs):
+					for col, ax in enumerate(axrow):
+						ax.axis('off')
+						if (row, col) not in caps:
+							continue
+						title = caps[(row, col)]
+						D = stats7.loc[(row, col)]
+						vals = [D[1], D[2], D[3]]
+						ax.barh((3, 2, 1), vals, log=True)
+						ax.set_title(title)
+		
+			elif show_layout:
 				self.layout.display()
 			elif show_costs:
 				df = self.bigrams.groupby(['row', 'column']).agg({'cost': 'sum', 'num': 'sum'})
