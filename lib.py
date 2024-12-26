@@ -25,10 +25,10 @@ STANDARD_FINGERS = '''
 ''' 
 
 STANDARD_PENALTIES = '''
-863246 6423689
-642134 43124689
- 21002 2001246
- 42114 41124
+864246 6424579
+432134 43123579
+ 10002 2000135
+ 21114 41112
 0
 '''
 
@@ -766,7 +766,7 @@ class Result:
 		num_threshold = 200
 		pairs2 = pairs[(pairs.h1 == pairs.h2) & (pairs.l2 != '¶')
 			   & (pairs.l1 != '⌴') & (pairs.l2 != '⌴')
-			   & (pairs.num > num_threshold) & (pairs.price > 1.5)]
+			   & (pairs.num > num_threshold)]
 
 		all_coords, width, height = self.layout.keyboard.key_coords()
 
