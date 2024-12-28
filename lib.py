@@ -73,8 +73,15 @@ class Corpus:
 	def from_string(raw_text, types=None):
 		# we take text and encode it, replacing space, linebreak and tab with displayable surrogates.
 		# (layouts are encoded with spaces and linebreaks as separators, so this way we won't confuse them)
-		text = raw_text.lower().replace(' ', '⌴').replace('\n', '¶').replace('\t', '→')
-
+		text = (raw_text.lower()
+			.replace(' ', '⌴')
+			.replace('\n', '¶')
+			.replace('\t', '→')
+			.replace('”', '"')
+			.replace('“', '"')
+			.replace('«', '"')
+			.replace('»', '"')
+		)
 		nums = defaultdict(int)
 		for i in range(2, len(text)):
 			nums[text[i-2:i]] += 1
@@ -129,15 +136,15 @@ def parse_layer(text):
 				keys_map[(ir, ic)] = f
 	return keys_map
 
-
-def get_finger_props(finger):
+def make_key(row, column, finger: int, penalty: int = 0):
 	return {
+		'row': row,
+		'column': column,
 		'finger': finger,  # finger unique ID. (left pinky = 0, left ring = 1, ... right pinky = 9)
 		'ftype': floor(abs(4.5 - finger)),  # number in its hand (thumb = 0, pinky = 4)
 		'hand': (0 if finger < 4.5 else 1), # hand numebre. Left = 0, right = 1
-		'penalty': 0, # position penalty (ie. monogram). From POS_PENALTY
+		'penalty': penalty, # position penalty (ie. monogram). From POS_PENALTY
 	}
-
 	
 KEYCAP_LAYER_SHIFTS = {
 	0: (0, 0),
@@ -185,14 +192,27 @@ class Keyboard:
 		self.key_shape = key_shape
 		self.keymap = {}
 		for (ir, ic), f in parse_layer(fingers).items():
-			props = get_finger_props(int(f))
-			self.keymap[(ir, ic)] = props
+			self.keymap[(ir, ic)] = make_key(ir, ic, int(f))
+
 
 		for (ir, ic), p in parse_layer(penalties).items():
 			if (ir, ic) not in self.keymap:
 				raise ValueError("Penalties map doesn't match fingers map!")
 			
 			self.keymap[(ir, ic)]['penalty'] = int(p)
+
+		self.keymap = pd.DataFrame.from_dict(self.keymap, orient='index')
+		self.bigrams = {}
+		for (r1, c1), key1 in self.keymap.iterrows():
+			for (r2, c2), key2 in self.keymap.iterrows():
+				cost, categ = self.get_bigram_cost((r1, c1), (r2, c2))
+				self.bigrams[(r1, c1, r2, c2)] = {
+					'bigram_cost': cost,
+					'bigram_cat': categ,
+					'pos_penalty': self.get_monogram_cost(r2, c2)
+				}
+
+		self.bigrams = pd.DataFrame.from_dict(self.bigrams, orient='index')
 	
 	def key_coords(self):
 		"""Generates coords data to display the keyboard. 1 unit = 2 cm, step of standard keyboard. Returns:
@@ -215,7 +235,57 @@ class Keyboard:
 		height = max(i[3] + i[5] for i in all_keys) - min(i[3] for i in all_keys) 
 		return all_keys, width, height
 		
+	def get_monogram_cost(self, row, column):
+		if (row, column) not in self.keymap:
+			return 0
 		
+		return self.keymap[(row, column)].penalty
+
+	def get_bigram_cost(self, pos1, pos2):
+		if pos1 not in self.keymap.index:
+			return 0, 'key 1 not in kbd'
+		k1 = self.keymap.loc[pos1]
+
+		if pos2 not in self.keymap.index:
+			return 0, 'key 2 not in kbd'
+		k2 = self.keymap.loc[pos2]
+
+		rules = (
+			(k1.ftype == 0 or k2.ftype == 0, 0, 'space bar'),
+			(k1.hand != k2.hand, 0, 'altern hands'),
+			(pos1 == pos2, 0, 'same key'),
+
+			(abs(k2.row - k1.row) >= 2 and k1.ftype == k2.ftype == 4, 12, 'pinky over row'),
+			(k1.ftype == k2.ftype == 4, 10, 'pinky adj row'),
+			(abs(k2.row - k1.row) >= 2 and k1.ftype == k2.ftype, 8, 'same finger over row'),
+			(k1.ftype == k2.ftype, 6, 'same finger adj row'),
+
+			(k1.ftype == 1 and k2.ftype == 4, 2, 'index -> pinky'),
+			(k1.ftype == 3 and k2.ftype == 4 and abs(k1.row - k2.row) == 1, 5, 'ring -> pinky, next row'),
+			(k1.ftype == 4 and k2.ftype == 3 and abs(k1.row - k2.row) == 1, 3, 'pinky -> ring, next row'),
+
+			(abs(k1.ftype - k2.ftype) == 1 and abs(k2.row - k1.row) > 1, 10, 'adj finger over row'),
+			(abs(k1.ftype - k2.ftype) == 2 and abs(k2.row - k1.row) > 1, 8, 'over 1 finger, over 1 row'),
+			(k1.ftype == 4 and k2.ftype == 1 and abs(k2.row - k1.row) > 1, 4, 'pinky -> index over 1 row'),
+			(k1.ftype == 1 and k2.ftype == 4 and abs(k2.row - k1.row) > 1, 6, 'over 2 fingers, over 1 row'),
+			
+			(k1.ftype > k2.ftype + 1 and k2.row == k1.row, 0, 'in, over 1 finger, same row'),
+			(k1.ftype > k2.ftype + 1 and abs(k2.row - k1.row) == 1, 1, 'in, over 1 finger, adj row'),
+			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row, 2, 'in, adj finger, same or adj row'),
+			(k1.ftype > k2.ftype and k2.row > k1.row, 1, 'in, lower row'),
+			
+			(k1.ftype == 1 and k2.ftype == 2 and k1.row == k2.row, 1, 'index->middle same row'),
+			(k2.ftype > k1.ftype, 4, 'out, over one finger'),
+			(k1.ftype + 1 == k2.ftype and k1.row == k2.row, 3, 'out, next finger'),
+			(k1.ftype + 1 == k2.ftype and abs(k1.row - k2.row) >= 1, 5, 'out, next finger'),
+		)
+
+		for cond, penalty, reason in rules:
+			if cond:
+				return penalty, reason
+
+		return 4, 'none'
+
 	def raw_display(self, key_caps=None, colors=None, title=None):
 		all_keys, width, height = self.key_coords()
 		for (x, y, w, h, cap) in self.extra_keys:
@@ -287,11 +357,11 @@ class Keyboard:
 		Displays the keyboard. Empty or with `key_caps` from a layout.
 		
 		"""
-		max_pen = max(k['penalty'] for k in self.keymap.values())
+		max_pen = max(k.penalty for k in self.keymap.values())
 		
 		return self.raw_display(
-			key_caps={coord: [k['penalty']] for coord, k in self.keymap.items()},
-			colors={coord: color_scale(k['penalty'], 0, max_pen) for coord, k in self.keymap.items()},
+			key_caps={coord: [k.penalty] for coord, k in self.keymap.items()},
+			colors={coord: color_scale(k.penalty, 0, max_pen) for coord, k in self.keymap.items()},
 			title = f'{self.name} with monogram penalties'
 		)
 
@@ -300,7 +370,6 @@ ROW_STAGGER = { 0: 0, 1: .5, 2: .75, 3: 1.25, 4: 1.75 }
 def std_key_shape(x, y, w, h):
 	if x > 6:
 		x -= 1
-
 
 	if x == 0 and y == 1: # '→':
 		x -= .5
@@ -432,22 +501,44 @@ class Layout:
 		
 		for il, layer in enumerate(maps):
 			for (ir, ic), k in layer.items():
-				if debug: print(il, ir, ic, k, (ir, ic) in keyboard.keymap)
-				if k != '∅' and (ir, ic) in keyboard.keymap:
-					data[k] = {'layer': il, 'row': ir, 'column': ic,
-							   'key_count': key_counts[k],
-							   **keyboard.keymap[(ir, ic)]}
+				if debug: print(il, ir, ic, k, (ir, ic) in keyboard.keymap.index)
+				if k != '∅' and (ir, ic) in keyboard.keymap.index:
+					key = keyboard.keymap.loc[(ir, ic)]
+					data[k] = {
+						'layer': il, 'row': ir, 'column': ic,
+						'key_count': key_counts[k],
+					}
 
 		self.name = name
 		self.keymap = pd.DataFrame.from_dict(data, orient='index')
 		self.keyboard = keyboard
 		self.original_text = layout_text
 		self.base_keys = base_keys
+	
+	def get_key(self, letter):
+		if letter not in self.keymap:
+			return None
+		r = self.keymap[letter]
+		return self.keyboard.keymap[(r['row'], r['column'])]
 
+	def get_bigram_cost(self, bg):
+		l1, l2 = bg
+		if l1 not in self.keymap.index:
+			print(f'l1, "{l1}" not in keymap')
+			return 0, 'absent'
+
+		elif l2 not in self.keymap.index:
+			print(f'l2, "{l2}" not in keymap')
+			return 0, 'absent'
+
+		k1 = self.keymap.loc[l1]
+		k2 = self.keymap.loc[l2]
+		pos1 = k1['row'], k1['column']
+		pos2 = k2['row'], k2['column']
+		return self.keyboard.get_bigram_cost(pos1, pos2)
 
 	def get_monogram_cost(self, l2):
 		"""Simply looks up keymap and gets pos_penalty field. Lowercases the letters."""
-		
 		if l2 not in self.keymap.index:
 			if l2.lower() in self.keymap.index:
 				l2 = l2.lower() # here we should but don't penalize Shift/AltGr pressing
@@ -458,64 +549,13 @@ class Layout:
 					raise ValueError(f'base key \'{l2}\' is not in the layout! (may be caused by unquoted backslash)')
 				return 0
 
-		return self.keymap.loc[l2].penalty
+		row = self.keymap.loc[l2]
+		return self.keyboard.get_monogram_cost(row['row'], row['column'])
 
 
 	# THE MAIN PENALTIES RULES
 	# Here we assign costs and also put a text name for the reason why bigram got it,
 	# to quickly see WTF is happening
-	def get_bigram_cost(self, bigram):
-		l1, l2 = bigram
-
-		if l2 not in self.keymap.index:
-			if l2.lower() in self.keymap.index:
-				l2 = l2.lower() # lowercase (= no penalties for shifts)
-			else:
-				return 0, 'L2 not in kbd'
-		k2 = self.keymap.loc[l2]
-
-		if l1 not in self.keymap.index:
-			if l1.lower() in self.keymap.index:
-				l1 = l1.lower() # lowercase of l1.
-			else:
-				return 0, 'L1 not in kbd'
-		k1 = self.keymap.loc[l1]
-
-		rules = (
-			(k1.ftype == 0 or k2.ftype == 0, 0, 'space bar'),
-			(k1.hand != k2.hand, 0, 'altern hands'),
-			(l1 == l2, 0, 'same key'),
-
-			(abs(k2.row - k1.row) >= 2 and k1.ftype == k2.ftype == 4, 12, 'pinky over row'),
-			(k1.ftype == k2.ftype == 4, 10, 'pinky adj row'),
-			(abs(k2.row - k1.row) >= 2 and k1.ftype == k2.ftype, 8, 'same finger over row'),
-			(k1.ftype == k2.ftype, 6, 'same finger adj row'),
-
-			(k1.ftype == 1 and k2.ftype == 4, 2, 'index -> pinky'),
-			(k1.ftype == 3 and k2.ftype == 4 and abs(k1.row - k2.row) == 1, 5, 'ring -> pinky, next row'),
-			(k1.ftype == 4 and k2.ftype == 3 and abs(k1.row - k2.row) == 1, 3, 'pinky -> ring, next row'),
-
-			(abs(k1.ftype - k2.ftype) == 1 and abs(k2.row - k1.row) > 1, 10, 'adj finger over row'),
-			(abs(k1.ftype - k2.ftype) == 2 and abs(k2.row - k1.row) > 1, 8, 'over 1 finger, over 1 row'),
-			(k1.ftype == 4 and k2.ftype == 1 and abs(k2.row - k1.row) > 1, 4, 'pinky -> index over 1 row'),
-			(k1.ftype == 1 and k2.ftype == 4 and abs(k2.row - k1.row) > 1, 6, 'over 2 fingers, over 1 row'),
-			
-			(k1.ftype > k2.ftype + 1 and k2.row == k1.row, 0, 'in, over 1 finger, same row'),
-			(k1.ftype > k2.ftype + 1 and abs(k2.row - k1.row) == 1, 1, 'in, over 1 finger, adj row'),
-			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row, 2, 'in, adj finger, same or adj row'),
-			(k1.ftype > k2.ftype and k2.row > k1.row, 1, 'in, lower row'),
-			
-			(k1.ftype == 1 and k2.ftype == 2 and k1.row == k2.row, 1, 'index->middle same row'),
-			(k2.ftype > k1.ftype, 4, 'out, over one finger'),
-			(k1.ftype + 1 == k2.ftype and k1.row == k2.row, 3, 'out, next finger'),
-			(k1.ftype + 1 == k2.ftype and abs(k1.row - k2.row) >= 1, 5, 'out, next finger'),
-		)
-
-		for cond, penalty, reason in rules:
-			if cond:
-				return penalty, reason
-
-		return 4, 'none'
 
 	def keycaps(self):
 		keycaps = defaultdict(list)
@@ -654,21 +694,18 @@ class Result:
 	# Gets the cost for input KBD text, bigrams & fingers maps
 	def __init__(self, corpus, layout):
 		bigram_df = corpus.bigrams.copy()
+		
+		b = (bigram_df
+			.merge(layout.keymap[['row', 'column']], left_on='l1', right_index=True)
+			.merge(layout.keymap[['row', 'column']], left_on='l2', right_index=True, suffixes=('', '2'))
+			.merge(layout.keyboard.bigrams, left_on=['row', 'column', 'row2', 'column2'], right_index=True)
+		)
+		b['cost'] = b['num'] * (b['bigram_cost'] + b['pos_penalty'])
 
-		# taking the text of keyboard layout and encode it into keymap a dataframe
-		bigram_df['price_l2'] = bigram_df.l2.apply(layout.get_monogram_cost)
-
-		# calculate bigrams cost
-		bigram_df[['price_di', 'category']] = bigram_df.bigram.apply(lambda d: pd.Series(layout.get_bigram_cost(d)))
-		bigram_df['price'] = bigram_df.price_l2 + bigram_df.price_di
-		bigram_df['cost'] = bigram_df.price * bigram_df.num
-		bigram_df['finger'] = bigram_df['l2'].map(layout.keymap.finger)
-		bigram_df['column'] = bigram_df['l2'].map(layout.keymap.column)
-		bigram_df['row'] = bigram_df['l2'].map(layout.keymap.row)
-		self.bigrams = bigram_df
+		self.bigrams = b
 		self.corpus = corpus # it's not copied here, just a pointer
 		self.layout = layout # also not copied
-		self.score = bigram_df.cost.sum() / bigram_df.num.sum()
+		self.score = b.cost.sum() / b.num.sum()
 
 	def compare(self, other):
 		x = self.bigrams[['bigram', 'num', 'category', 'price', 'cost']].merge(
@@ -871,3 +908,22 @@ class Result:
 
 def compare(results_dict, key1, key2):
 	return results_dict[key1].compare(results_dict[key2])
+
+
+
+STANDARD_KBD.get_bigram_cost((1, 1), (2, 2))
+CORP = Corpus.from_path('../sampletexts.txt', 'sample1.txt', 'sample2.txt', types={'v': 'аеёиоуъыьэюя', 'c': 'бвгджзйклмнпрстфхцчшщ'})
+
+l = Layout('йцукен', (r'''
+    
+ё12345 67890-=
+→йцуке нгшщзхъ\
+ фывап ролджэ¶
+ ячсми тьбю.
+⌴
+
+~!"№;% :?*()_+
+ ∅∅∅∅∅ ∅∅∅∅∅∅∅∅/
+ ∅∅∅∅∅ ∅∅∅∅∅∅∅
+ ∅∅∅∅∅ ∅∅∅∅,
+''', STANDARD_KBD))
