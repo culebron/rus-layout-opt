@@ -798,7 +798,6 @@ class Result:
 				raise ValueError('what must be \`cost\` or \`freq\`.')
 
 	def show_arrows(self, ax=None, max_num=None, costs=None):
-		
 		letters = self.bigrams[['column1', 'row1', 'num', 'cost']].groupby(['column1', 'row1']).agg({'num': 'sum', 'cost': 'sum'})
 		maxnum = letters['num'].max()
 		maxcost = (letters['cost'] / letters['num']).max()
@@ -809,14 +808,14 @@ class Result:
 		x1 = pairs['l1'].map(km['column'])
 		y1 = pairs['l1'].map(km['row'])
 		pairs = pairs.merge(
-		    self.layout.keyboard.keymap[['hand']], left_on=['row1', 'column1'], right_index=True, suffixes=('', '1')
+		    self.layout.keyboard.keymap[['hand', 'finger']], left_on=['row1', 'column1'], right_index=True, suffixes=('', '1')
 			).merge(
-    		self.layout.keyboard.keymap[['hand']], left_on=['row2', 'column2'], right_index=True, suffixes=('', '2')
+    		self.layout.keyboard.keymap[['hand', 'finger']], left_on=['row2', 'column2'], right_index=True, suffixes=('', '2')
 		)
 
 		num_threshold = 200
 		pairs2 = pairs[(pairs.hand1 == pairs.hand2) & (pairs.l2 != '¶')
-			& (pairs.l1 != '⌴') & (pairs.l2 != '⌴')
+			& ~pairs.finger1.isin([4, 5]) & ~pairs.finger2.isin([4, 5])
 			& (pairs.num > num_threshold)]
 
 		all_coords, width, height = self.layout.keyboard.key_coords()
