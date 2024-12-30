@@ -203,16 +203,18 @@ class Keyboard:
 
 		self.keymap = pd.DataFrame.from_dict(self.keymap, orient='index')
 		self.bigrams = {}
+		self.monograms = {}
+		
 		for (r1, c1), key1 in self.keymap.iterrows():
 			for (r2, c2), key2 in self.keymap.iterrows():
 				cost, categ = self.get_bigram_cost((r1, c1), (r2, c2))
 				self.bigrams[(r1, c1, r2, c2)] = {
 					'bigram_cost': cost,
-					'bigram_cat': categ,
-					'pos_penalty': self.get_monogram_cost(r2, c2)
+					'bigram_cat': categ
 				}
 
 		self.bigrams = pd.DataFrame.from_dict(self.bigrams, orient='index')
+		self.monograms = pd.DataFrame.from_dict(self.monograms, orient='index')
 	
 	def key_coords(self):
 		"""Generates coords data to display the keyboard. 1 unit = 2 cm, step of standard keyboard. Returns:
@@ -223,7 +225,7 @@ class Keyboard:
 		* height: height of the entire keyboard
 		"""
 		all_keys = []
-		for (ir, ic), k in self.keymap.items():
+		for (ir, ic) in self.keymap.index:
 			if self.key_shape:
 				x, y, w, h = self.key_shape(ic, ir, 1, 1)
 			else:
@@ -357,12 +359,12 @@ class Keyboard:
 		Displays the keyboard. Empty or with `key_caps` from a layout.
 		
 		"""
-		max_pen = max(k.penalty for k in self.keymap.values())
+		max_pen = self.keymap.penalty.max()
 		
 		return self.raw_display(
-			key_caps={coord: [k.penalty] for coord, k in self.keymap.items()},
-			colors={coord: color_scale(k.penalty, 0, max_pen) for coord, k in self.keymap.items()},
-			title = f'{self.name} with monogram penalties'
+			key_caps=self.keymap['penalty'].to_dict(),
+			colors= self.keymap['penalty'].apply(color_scale, args=(0, max_pen)).to_dict(),
+			title=f'{self.name} with monogram penalties'
 		)
 
 ROW_STAGGER = { 0: 0, 1: .5, 2: .75, 3: 1.25, 4: 1.75 }
@@ -523,6 +525,12 @@ class Layout:
 
 	def get_bigram_cost(self, bg):
 		l1, l2 = bg
+
+		if l1 not in self.base_keys:
+			return 0, f'L1 "{l1}" not in base keys'
+		if l2 not in self.base_keys:
+			return 0, f'L2 "{l2}" not in base keys'
+
 		if l1 not in self.keymap.index:
 			print(f'l1, "{l1}" not in keymap')
 			return 0, 'absent'
@@ -694,13 +702,13 @@ class Result:
 	# Gets the cost for input KBD text, bigrams & fingers maps
 	def __init__(self, corpus, layout):
 		bigram_df = corpus.bigrams.copy()
-		
 		b = (bigram_df
 			.merge(layout.keymap[['row', 'column']], left_on='l1', right_index=True)
-			.merge(layout.keymap[['row', 'column']], left_on='l2', right_index=True, suffixes=('', '2'))
-			.merge(layout.keyboard.bigrams, left_on=['row', 'column', 'row2', 'column2'], right_index=True)
+			.merge(layout.keymap[['row', 'column']], left_on='l2', right_index=True, suffixes=('1', '2'))
+			.merge(layout.keyboard.bigrams, left_on=['row1', 'column1', 'row2', 'column2'], right_index=True, how='left')
+			.merge(layout.keyboard.keymap, left_on=['row2', 'column2'], right_index=True)
 		)
-		b['cost'] = b['num'] * (b['bigram_cost'] + b['pos_penalty'])
+		b['cost'] = b['num'] * (b['bigram_cost'] + b['penalty'])
 
 		self.bigrams = b
 		self.corpus = corpus # it's not copied here, just a pointer
@@ -708,8 +716,8 @@ class Result:
 		self.score = b.cost.sum() / b.num.sum()
 
 	def compare(self, other):
-		x = self.bigrams[['bigram', 'num', 'category', 'price', 'cost']].merge(
-			other.bigrams[['bigram', 'category', 'price', 'cost']],
+		x = self.bigrams[['bigram', 'num', 'bigram_cat', 'bigram_cost', 'cost']].merge(
+			other.bigrams[['bigram', 'bigram_cat', 'bigram_cost', 'cost']],
 			on='bigram', suffixes=['_old', '_new'])
 		x['delta'] = x['cost_new'] - x['cost_old']
 		return x[x.delta != 0].sort_values('delta', ascending=False)
@@ -728,7 +736,8 @@ class Result:
 				t2 = b.rename(columns={'l2': 'letter', 'l1': 'other'}).groupby(['letter', 'other']).agg({'num': 'sum'}).reset_index()
 
 				stats = pd.concat([t1, t2]).groupby(['letter', 'other']).agg({'num': 'sum'}).reset_index()
-				keys = self.layout.keymap[['row', 'column', 'hand', 'layer']].reset_index()
+				km = self.layout.keymap.merge(self.layout.keyboard.keymap, left_on=['row', 'column'], right_index=True)
+				keys = km[['row', 'column', 'hand', 'layer']].reset_index()
 				stats2 = stats.merge(keys, left_on='letter', right_on='index')
 				stats3 = stats2.merge(keys, left_on='other', right_on='index', suffixes=('', '_other'))
 				stats4 = stats3[(stats3.hand == stats3.hand_other) & (stats3.row <= 3) & (stats3.row_other <= 3)].sort_values('layer')
@@ -789,21 +798,26 @@ class Result:
 				raise ValueError('what must be \`cost\` or \`freq\`.')
 
 	def show_arrows(self, ax=None, max_num=None, costs=None):
-		letters = self.bigrams[['column', 'row', 'num', 'cost']].groupby(['column', 'row']).agg({'num': 'sum', 'cost': 'sum'})
+		
+		letters = self.bigrams[['column1', 'row1', 'num', 'cost']].groupby(['column1', 'row1']).agg({'num': 'sum', 'cost': 'sum'})
 		maxnum = letters['num'].max()
 		maxcost = (letters['cost'] / letters['num']).max()
 
 		pairs = self.bigrams
-		km = self.layout.keymap
+		km = self.layout.keymap.reset_index().merge(self.layout.keyboard.keymap, on=['row', 'column']).set_index('index')
 		km2 = km.reset_index().set_index(['layer', 'row', 'column'])
 		x1 = pairs['l1'].map(km['column'])
 		y1 = pairs['l1'].map(km['row'])
-		pairs['h1'] = pairs['l1'].map(km['hand'])
-		pairs['h2'] = pairs['l2'].map(km['hand'])
+		pairs = pairs.merge(
+		    self.layout.keyboard.keymap[['hand']], left_on=['row1', 'column1'], right_index=True, suffixes=('', '1')
+			).merge(
+    		self.layout.keyboard.keymap[['hand']], left_on=['row2', 'column2'], right_index=True, suffixes=('', '2')
+		)
+
 		num_threshold = 200
-		pairs2 = pairs[(pairs.h1 == pairs.h2) & (pairs.l2 != '¶')
-			   & (pairs.l1 != '⌴') & (pairs.l2 != '⌴')
-			   & (pairs.num > num_threshold)]
+		pairs2 = pairs[(pairs.hand1 == pairs.hand2) & (pairs.l2 != '¶')
+			& (pairs.l1 != '⌴') & (pairs.l2 != '⌴')
+			& (pairs.num > num_threshold)]
 
 		all_coords, width, height = self.layout.keyboard.key_coords()
 
@@ -831,12 +845,11 @@ class Result:
 				if cap[0] == '⌴':
 					continue
 				ax.text(X, Y, cap[0].replace('⌴', ''),
-					 fontdict={'color':  '#000', 'size': 14, 'ha': 'center'})
+					fontdict={'color':  '#000', 'size': 14, 'ha': 'center'})
 
 			ax.add_patch(FancyBboxPatch((X - n * w / 2, Y - h * n / 2), n * w, n * h,
-			   capstyle='round', linewidth=0, color=color))
+			capstyle='round', linewidth=0, color=color))
 			coords[(ic, ir)] = np.array([X, Y])
-
 
 		max_num = max(pairs2['num'].max() ** .5, max_num or 0)
 		min_cost = pairs2['cost'].min() ** .5
@@ -848,11 +861,11 @@ class Result:
 		for i, bg in pairs2.sort_values('cost').iterrows():
 			l1, l2 = bg['l1'], bg['l2']
 			if l1 not in km.index or l2 not in km.index:
-				continue
+					continue
 			r1, c1 = km.loc[l1][['row', 'column']]
 			r2, c2 = km.loc[l2][['row', 'column']]
 			if (c1, r1) not in coords or (c2, r2) not in coords:
-				continue
+					continue
 
 			coords1 = coords[(c1, r1)]
 			coords2 = coords[(c2, r2)]
@@ -863,6 +876,7 @@ class Result:
 				width=bg['num'] ** .5 / max_num / 5,
 				shape='left', length_includes_head=True, ec='#00000000',
 				color=plt.cm.turbo(t))
+
 
 	def combodata(self):
 		filtered = self.bigrams[(self.bigrams.l2 != '⌴') & (self.bigrams.l1 != '⌴')].copy()
@@ -909,21 +923,3 @@ class Result:
 def compare(results_dict, key1, key2):
 	return results_dict[key1].compare(results_dict[key2])
 
-
-
-STANDARD_KBD.get_bigram_cost((1, 1), (2, 2))
-CORP = Corpus.from_path('../sampletexts.txt', 'sample1.txt', 'sample2.txt', types={'v': 'аеёиоуъыьэюя', 'c': 'бвгджзйклмнпрстфхцчшщ'})
-
-l = Layout('йцукен', (r'''
-    
-ё12345 67890-=
-→йцуке нгшщзхъ\
- фывап ролджэ¶
- ячсми тьбю.
-⌴
-
-~!"№;% :?*()_+
- ∅∅∅∅∅ ∅∅∅∅∅∅∅∅/
- ∅∅∅∅∅ ∅∅∅∅∅∅∅
- ∅∅∅∅∅ ∅∅∅∅,
-''', STANDARD_KBD))
