@@ -852,8 +852,8 @@ class Result:
 			coords[(ic, ir)] = np.array([X, Y])
 
 		max_num = max(pairs2['num'].max() ** .5, max_num or 0)
-		min_cost = pairs2['cost'].min() ** .5
-		max_cost = pairs2['cost'].max() ** .5
+		min_cost = pairs2['bigram_cost'].min() ** .5
+		max_cost = pairs2['bigram_cost'].max() ** .5
 		if costs is not None:
 			min_cost = min(min_cost, costs[0])
 			max_cost = max(max_cost, costs[1])
@@ -871,7 +871,7 @@ class Result:
 			coords2 = coords[(c2, r2)]
 			delta = coords2 - coords1
 			
-			t = (bg['cost'] ** .5 - min_cost) / (max_cost - min_cost)
+			t = (bg['bigram_cost'] ** .5 - min_cost) / (max_cost - min_cost)
 			ax.arrow(coords1[0], coords1[1], delta[0], delta[1],
 				width=bg['num'] ** .5 / max_num / 5,
 				shape='left', length_includes_head=True, ec='#00000000',
