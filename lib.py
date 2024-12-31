@@ -16,10 +16,11 @@ VOW_CONS_RU = {'v': 'аеёиоуъыьэюя', 'c': 'бвгджзйклмнпр
 # these keys MUST be in any layout, otherwise the code throws an exception and halts
 BASE_KEYS_RU = set('ё-!?%*():;йцукенгшщзхъфывапролджэячсмитьбю.,⌴¶')
 
+# abcde fghij = home positions of 0..9 respectively
 STANDARD_FINGERS = '''
 001233 6678999
 001233 66789999
- 01233 6678999
+ abcd3 6ghij99
  01233 66789
 4
 ''' 
@@ -164,6 +165,7 @@ def color_scale(val, min_val, max_val, scale=plt.cm.plasma, lighten=.5):
 	return lighten_color(scale((val - min_val) / (max_val - min_val)), lighten)
 
 
+HOME_POS_NUMS = 'abcdefghij'
 class Keyboard:
 	"""Keeps fingers and penalties map of a model or a fingers positioning scheme."""
 	def __init__(self, name, fingers, penalties, key_shape=None, extra_keys=None):
@@ -175,6 +177,7 @@ class Keyboard:
 		- name, str: just the name
 		- fingers, str: string, where line is row, char pos is column, and the number in there (0..9)
 			is the finger. 0 = left pinky, 1 = left ring, .. 9 = right pinky.
+			Letters a..j denote home positions for 0..9 respectively.
 			Penalties map and layouts must reproduce these positions.
 		- penalties, str: integer penalties in the same positions.
 		- key_display, function: a callback that processes a key to be rendered.
@@ -191,10 +194,28 @@ class Keyboard:
 		self.extra_keys = extra_keys or []
 		self.key_shape = key_shape
 		self.keymap = {}
+		self.homes = [None] * 10
+		finger_count = [0] * 10
+		last_pos = [None] * 10
 		for (ir, ic), f in parse_layer(fingers).items():
-			self.keymap[(ir, ic)] = make_key(ir, ic, int(f))
+			if f in HOME_POS_NUMS:
+				finger = HOME_POS_NUMS.index(f)
+				self.homes[finger] = (ir, ic)
+				f = finger
+				
+			f = int(f)
+			self.keymap[(ir, ic)] = make_key(ir, ic, f)
+			last_pos[f] = (ir, ic)
+			finger_count[f] += 1
 
-
+		for i, pos in enumerate(self.homes):
+			if finger_count[i] == 1:
+				self.homes[i] = last_pos[i]
+			elif finger_count[i] == 0:
+				self.homes[i] = (0, 0)
+			elif pos is None:
+				raise ValueError(f'finger {i} has no home position. Add "{HOME_POS_NUMS[i]}" somewhere.')
+		#print('HOMES', self.homes)
 		for (ir, ic), p in parse_layer(penalties).items():
 			if (ir, ic) not in self.keymap:
 				raise ValueError("Penalties map doesn't match fingers map!")
@@ -207,10 +228,15 @@ class Keyboard:
 		
 		for (r1, c1), key1 in self.keymap.iterrows():
 			for (r2, c2), key2 in self.keymap.iterrows():
-				cost, categ = self.get_bigram_cost((r1, c1), (r2, c2))
+				coord_cost, coord_cat = self.get_coord_cost((r1, c1), (r2, c2))
+				hoff, voff, move_cost, move_cat = self.get_move_cost((r1, c1), (r2, c2))
 				self.bigrams[(r1, c1, r2, c2)] = {
-					'bigram_cost': cost,
-					'bigram_cat': categ
+					'coord_cost': coord_cost,
+					'coord_cat': coord_cat,
+					'move_cost': move_cost,
+					'move_cat': move_cat,
+					'voff': voff,
+					'hoff': hoff,
 				}
 
 		self.bigrams = pd.DataFrame.from_dict(self.bigrams, orient='index')
@@ -243,7 +269,29 @@ class Keyboard:
 		
 		return self.keymap[(row, column)].penalty
 
-	def get_bigram_cost(self, pos1, pos2):
+	def get_move_cost(self, pos1, pos2):
+		k1 = self.keymap.loc[pos1]
+		k2 = self.keymap.loc[pos2]
+		if k1.hand != k2.hand:
+			return 0, 0, 0, 'altern hands'
+
+		h1 = self.homes[k1.finger]
+		voff1 = h1[0] - pos1[0]
+		hoff1 = h1[1] - pos1[1]
+		offset1 = abs(voff1 ** 2 + hoff1 ** 2)
+
+		h2 = self.homes[k2.finger]
+		voff2 = h2[0] - pos2[0]
+		hoff2 = h2[1] - pos2[1]
+		offset2 = abs(voff2 ** 2 + hoff2 ** 2)
+		
+		hoff = abs(hoff2 - hoff1)
+		voff = abs(voff2 - voff1)
+		offset = abs(offset2 - offset1)
+
+		return hoff, voff, offset, 'ok'
+
+	def get_coord_cost(self, pos1, pos2):
 		if pos1 not in self.keymap.index:
 			return 0, 'key 1 not in kbd'
 		k1 = self.keymap.loc[pos1]
@@ -448,18 +496,18 @@ ERGODOX = Keyboard('ergodox',
 '''
 0012333 6667899
 0012333 6667899
-001233   667899
+0abcd3   6ghij9
 0012333 6667899
 00123     67899
-    444 555
+    e44 55f
 ''', # ehm... in reality, I press the outermost keys on the top row with the ring fingers, not pinky, so...
 # maybe it's better to write the real usage here...
 
 '''
 8642468 8642468
-2111346 6431112
-200002   200002
-2111146 6411112
+3211346 6431123
+210002   200012
+3211146 6411123
 42222     22224
     000 000
 ''', ergodox_key_shape)
@@ -523,7 +571,15 @@ class Layout:
 		r = self.keymap[letter]
 		return self.keyboard.keymap[(r['row'], r['column'])]
 
-	def get_bigram_cost(self, bg):
+	def get_pos(self, l):
+		if l not in self.keymap.index:
+			print('letter "{l}" not in keymap')
+			return None
+
+		k = self.keymap.loc[l]
+		return k['row'], k['column']
+
+	def get_coord_cost(self, bg):
 		l1, l2 = bg
 
 		if l1 not in self.base_keys:
@@ -531,19 +587,16 @@ class Layout:
 		if l2 not in self.base_keys:
 			return 0, f'L2 "{l2}" not in base keys'
 
-		if l1 not in self.keymap.index:
-			print(f'l1, "{l1}" not in keymap')
-			return 0, 'absent'
+		pos1 = self.get_pos(l1)
+		pos2 = self.get_pos(l2)
+		if pos1 is None and pos2 is None:
+			return 0, 'l1 and l2 absent'
+		if pos1 is None:
+			return 0, 'l1 absent'
+		if pos2 is None:
+			return 0, 'l2 absent'
 
-		elif l2 not in self.keymap.index:
-			print(f'l2, "{l2}" not in keymap')
-			return 0, 'absent'
-
-		k1 = self.keymap.loc[l1]
-		k2 = self.keymap.loc[l2]
-		pos1 = k1['row'], k1['column']
-		pos2 = k2['row'], k2['column']
-		return self.keyboard.get_bigram_cost(pos1, pos2)
+		return self.keyboard.get_coord_cost(pos1, pos2)
 
 	def get_monogram_cost(self, l2):
 		"""Simply looks up keymap and gets pos_penalty field. Lowercases the letters."""
@@ -560,6 +613,19 @@ class Layout:
 		row = self.keymap.loc[l2]
 		return self.keyboard.get_monogram_cost(row['row'], row['column'])
 
+	def get_move_cost(self, bg):
+		l1, l2 = bg
+		pos1 = self.get_pos(l1)
+		pos2 = self.get_pos(l2)
+		if pos1 is None and pos2 is None:
+			return 0, 0, 0, 'l1 and l2 absent'
+		if pos1 is None:
+			return 0, 0, 0, 'l1 absent'
+		if pos2 is None:
+			return 0, 0, 0, 'l2 absent'
+
+		return self.keyboard.get_move_cost(pos1, pos2)
+
 
 	# THE MAIN PENALTIES RULES
 	# Here we assign costs and also put a text name for the reason why bigram got it,
@@ -575,7 +641,7 @@ class Layout:
 		"""
 		Shows the layout with the keyboard.
 		"""
-		colors = self.keymap.groupby(['row', 'column']).agg({'finger': 'first'})['finger'].apply(lambda f:
+		colors = self.keymap.merge(self.keyboard.keymap, on=['row', 'column']).groupby(['row', 'column']).agg({'finger': 'first'})['finger'].apply(lambda f:
 				 lighten_color(plt.cm.Set3((f + (f % 2) * 10) / 20), .5)).to_dict()
 		self.keyboard.raw_display(self.keycaps(), colors, f"{self.name} layout with finger zones")
 
@@ -708,7 +774,7 @@ class Result:
 			.merge(layout.keyboard.bigrams, left_on=['row1', 'column1', 'row2', 'column2'], right_index=True, how='left')
 			.merge(layout.keyboard.keymap, left_on=['row2', 'column2'], right_index=True)
 		)
-		b['cost'] = b['num'] * (b['bigram_cost'] + b['penalty'])
+		b['cost'] = b['num'] * (b['coord_cost'] + b['move_cost'] + b['penalty'] / 2)
 
 		self.bigrams = b
 		self.corpus = corpus # it's not copied here, just a pointer
@@ -716,8 +782,8 @@ class Result:
 		self.score = b.cost.sum() / b.num.sum()
 
 	def compare(self, other):
-		x = self.bigrams[['bigram', 'num', 'bigram_cat', 'bigram_cost', 'cost']].merge(
-			other.bigrams[['bigram', 'bigram_cat', 'bigram_cost', 'cost']],
+		x = self.bigrams[['bigram', 'num', 'coord_cat', 'coord_cost', 'move_cost', 'move_cat', 'cost']].merge(
+			other.bigrams[['bigram', 'coord_cat', 'coord_cost', 'move_cost', 'move_cat', 'cost']],
 			on='bigram', suffixes=['_old', '_new'])
 		x['delta'] = x['cost_new'] - x['cost_old']
 		return x[x.delta != 0].sort_values('delta', ascending=False)
@@ -816,7 +882,7 @@ class Result:
 		num_threshold = 200
 		pairs2 = pairs[(pairs.hand1 == pairs.hand2) & (pairs.l2 != '¶')
 			& ~pairs.finger1.isin([4, 5]) & ~pairs.finger2.isin([4, 5])
-			& (pairs.num > num_threshold)]
+			& (pairs.num > num_threshold)].copy()
 
 		all_coords, width, height = self.layout.keyboard.key_coords()
 
@@ -849,7 +915,7 @@ class Result:
 			ax.add_patch(FancyBboxPatch((X - n * w / 2, Y - h * n / 2), n * w, n * h,
 			capstyle='round', linewidth=0, color=color))
 			coords[(ic, ir)] = np.array([X, Y])
-
+		pairs2['bigram_cost']  = pairs2['coord_cost'] + pairs2['move_cost']
 		max_num = max(pairs2['num'].max() ** .5, max_num or 0)
 		min_cost = pairs2['bigram_cost'].min() ** .5
 		max_cost = pairs2['bigram_cost'].max() ** .5
@@ -875,7 +941,6 @@ class Result:
 				width=bg['num'] ** .5 / max_num / 5,
 				shape='left', length_includes_head=True, ec='#00000000',
 				color=plt.cm.turbo(t))
-
 
 	def combodata(self):
 		filtered = self.bigrams[(self.bigrams.l2 != '⌴') & (self.bigrams.l1 != '⌴')].copy()
