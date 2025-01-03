@@ -229,7 +229,7 @@ class Keyboard:
 		for (r1, c1), key1 in self.keymap.iterrows():
 			for (r2, c2), key2 in self.keymap.iterrows():
 				coord_cost, coord_cat = self.get_coord_cost((r1, c1), (r2, c2))
-				hoff, voff, move_cost, move_cat = self.get_move_cost((r1, c1), (r2, c2))
+				voff, hoff, move_cost, move_cat = self.get_move_cost((r1, c1), (r2, c2))
 				self.bigrams[(r1, c1, r2, c2)] = {
 					'coord_cost': coord_cost,
 					'coord_cat': coord_cat,
@@ -272,8 +272,6 @@ class Keyboard:
 	def get_move_cost(self, pos1, pos2):
 		k1 = self.keymap.loc[pos1]
 		k2 = self.keymap.loc[pos2]
-		if k1.hand != k2.hand:
-			return 0, 0, 0, 'altern hands'
 
 		h1 = self.homes[k1.finger]
 		voff1 = h1[0] - pos1[0]
@@ -287,9 +285,12 @@ class Keyboard:
 		
 		hoff = abs(hoff2 - hoff1)
 		voff = abs(voff2 - voff1)
-		offset = abs(offset2 - offset1)
+		offset = abs(offset2 * offset1)
 
-		return hoff, voff, offset, 'ok'
+		if k1.hand != k2.hand or k1.ftype == 0:
+			return voff2 / 2, hoff2 / 2, offset2 / 2, 'alternating or space'  # if key1 is space or different hand, count only half (half is arbitrary)
+
+		return voff, hoff, offset, 'ok'
 
 	def get_coord_cost(self, pos1, pos2):
 		if pos1 not in self.keymap.index:
@@ -864,10 +865,10 @@ class Result:
 				raise ValueError('what must be \`cost\` or \`freq\`.')
 
 	def show_arrows(self, ax=None, max_num=None, costs=None):
-		letters = self.bigrams[['column1', 'row1', 'num', 'cost']].groupby(['column1', 'row1']).agg({'num': 'sum', 'cost': 'sum'})
+		letters = self.bigrams[self.bigrams.l1 != '⌴'][['column1', 'row1', 'num', 'cost']].groupby(['column1', 'row1']).agg({'num': 'sum', 'cost': 'sum'})
 		maxnum = letters['num'].max()
-		maxcost = (letters['cost'] / letters['num']).max()
-
+		maxcost = (letters['cost'] / letters['num']).max() ** .5
+		
 		pairs = self.bigrams
 		km = self.layout.keymap.reset_index().merge(self.layout.keyboard.keymap, on=['row', 'column']).set_index('index')
 		km2 = km.reset_index().set_index(['layer', 'row', 'column'])
@@ -900,8 +901,8 @@ class Result:
 			if (ic, ir) not in letters.index:
 				continue
 			row = letters.loc[(ic, ir)]
-			color = color_scale(row['cost'] / row['num'], 0, maxcost, plt.cm.rainbow)
-			n = (row['num'] / maxnum)
+			color = color_scale((row['cost'] / row['num']) ** .5, 0, maxcost, plt.cm.rainbow)
+			n = (row['num'] / maxnum) * .5
 			X = x - minx + 1
 			Y = height + miny - y - .5
 
@@ -915,10 +916,11 @@ class Result:
 			ax.add_patch(FancyBboxPatch((X - n * w / 2, Y - h * n / 2), n * w, n * h,
 			capstyle='round', linewidth=0, color=color))
 			coords[(ic, ir)] = np.array([X, Y])
-		pairs2['bigram_cost']  = pairs2['coord_cost'] + pairs2['move_cost']
+			
+		cc = pairs2['cost'] / pairs2['num'] #pairs2['bigram_cost'] = pairs2['coord_cost'] + pairs2['move_cost']
 		max_num = max(pairs2['num'].max() ** .5, max_num or 0)
-		min_cost = pairs2['bigram_cost'].min() ** .5
-		max_cost = pairs2['bigram_cost'].max() ** .5
+		min_cost = cc.min() ** .5
+		max_cost = cc.max() ** .5
 		if costs is not None:
 			min_cost = min(min_cost, costs[0])
 			max_cost = max(max_cost, costs[1])
@@ -936,9 +938,10 @@ class Result:
 			coords2 = coords[(c2, r2)]
 			delta = coords2 - coords1
 			
-			t = (bg['bigram_cost'] ** .5 - min_cost) / (max_cost - min_cost)
+			# print(f'min cost {min_cost}, max cost {max_cost}, bg cost {bg["cost"]} num {bg["num"]}, price {bg["cost"] / bg["num"]}')
+			t = (bg['cost'] / bg['num'] - min_cost) / (max_cost - min_cost)  # why is this not square root?
 			ax.arrow(coords1[0], coords1[1], delta[0], delta[1],
-				width=bg['num'] ** .5 / max_num / 5,
+				width=bg['num'] ** .5 / max_num / 4,
 				shape='left', length_includes_head=True, ec='#00000000',
 				color=plt.cm.turbo(t))
 
@@ -960,14 +963,14 @@ class Result:
 		all_heights = sum(i[1][2] for i in layouts) + 1
 		fig, axes = plt.subplots(len(layouts), 1, figsize=(width, all_heights))
 
-		ll = pd.concat([i[0].bigrams for i in layouts])
+		ll = pd.concat([i[0].bigrams for i in layouts])	
+		#ll.to_csv('/tmp/maxcosts.csv')
 		min_cost = (ll['cost'] / ll['num']).min() ** .5
 		max_cost = (ll['cost'] / ll['num']).max() ** .5
 		max_num = ll['num'].max() ** .5
 
 		plt.text(width / 2, all_heights / len(layouts) + .5, 'Layouts comparison.\nArrow size = frequency, color = total cost.\nKey size = its bigrams cost, color = mean price.\nScales are the same.',
 			 size=14, ha='center')
-
 		for (result, (all_coords, width, height)), ax in zip(layouts, axes):
 			result.show_arrows(ax, max_num, (min_cost, max_cost))
 
