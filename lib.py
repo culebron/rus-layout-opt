@@ -918,7 +918,7 @@ class Result:
 			coords[(ic, ir)] = np.array([X, Y])
 			
 		cc = pairs2['cost'] / pairs2['num'] #pairs2['bigram_cost'] = pairs2['coord_cost'] + pairs2['move_cost']
-		max_num = max(pairs2['num'].max() ** .5, max_num or 0)
+		max_num = max(pairs2['num'].max(), max_num or 0)
 		min_cost = cc.min() ** .5
 		max_cost = cc.max() ** .5
 		if costs is not None:
@@ -941,7 +941,7 @@ class Result:
 			# print(f'min cost {min_cost}, max cost {max_cost}, bg cost {bg["cost"]} num {bg["num"]}, price {bg["cost"] / bg["num"]}')
 			t = (bg['cost'] / bg['num'] - min_cost) / (max_cost - min_cost)  # why is this not square root?
 			ax.arrow(coords1[0], coords1[1], delta[0], delta[1],
-				width=bg['num'] ** .5 / max_num / 4,
+				width=bg['num'] / max_num / 4,
 				shape='left', length_includes_head=True, ec='#00000000',
 				color=plt.cm.turbo(t))
 
@@ -964,10 +964,9 @@ class Result:
 		fig, axes = plt.subplots(len(layouts), 1, figsize=(width, all_heights))
 
 		ll = pd.concat([i[0].bigrams for i in layouts])	
-		#ll.to_csv('/tmp/maxcosts.csv')
 		min_cost = (ll['cost'] / ll['num']).min() ** .5
 		max_cost = (ll['cost'] / ll['num']).max() ** .5
-		max_num = ll['num'].max() ** .5
+		max_num = ll['num'].max()
 
 		plt.text(width / 2, all_heights / len(layouts) + .5, 'Layouts comparison.\nArrow size = frequency, color = total cost.\nKey size = its bigrams cost, color = mean price.\nScales are the same.',
 			 size=14, ha='center')
