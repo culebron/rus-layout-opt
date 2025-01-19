@@ -736,8 +736,11 @@ class Layout:
 		rows = ''
 
 		row_names = 'EDCB'
+		prev_r = None
 		for (r, c), df in self.keymap.sort_values(['row', 'column', 'layer']).groupby(['row', 'column']):
 			if r > 3: continue
+			if prev_r != r:
+				rows += '\n'
 			if c > 6: c -= 1
 			y = df.reset_index().set_index('layer')
 			pos_name = EXCL_POS[(r, c)] if (r, c) in EXCL_POS else f'A{row_names[r]}{c:02d}'	
@@ -755,13 +758,14 @@ class Layout:
 				
 			if len(key_recs) == 0: continue
 			rows += f'\tkey <{pos_name}> {{ [ ' + ', '.join(key_recs) + ' ] };\n'
+			prev_r = r
 		
 		print(f'''
-	default partial alphanumeric_keys
-	xkb_symbols "{self.name}" {{
-		include "ru(common)"
-		name[Group1]= "Culebron ({self.name})";
-		{rows}
+default partial alphanumeric_keys
+xkb_symbols "{self.name}" {{
+	include "ru(common)"
+	name[Group1]= "Culebron ({self.name})";
+	{rows}
 	}};
 	''')
 
