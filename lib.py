@@ -625,7 +625,7 @@ class Layout:
 		if pos2 is None:
 			return 0, 0, 0, 'l2 absent'
 
-		return self.keyboard.get_move_cost(pos1, pos2)
+		return self.keyboard.get_move_cost(pos1, pos2) * 2
 
 
 	# THE MAIN PENALTIES RULES
