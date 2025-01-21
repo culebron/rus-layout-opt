@@ -684,6 +684,7 @@ class Layout:
 		'''
 
 		cyr_other = '''
+		ә  schwa 
 		і Ukrainian i 
 		қ  ka descender
 		ң  en descender
