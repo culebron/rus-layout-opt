@@ -683,11 +683,34 @@ class Layout:
 		я ya
 		'''
 
+		cyr_other = '''
+		і Ukrainian i 
+		қ  ka descender
+		ң  en descender
+		ө  o bar
+		ү  u straight
+		ұ  u straight_bar
+		һ  shha 
+		ғ  ghe bar
+'''
+
 		LETS = {}
 		for c in cyr.strip().split('\n'):
 			letter, name = c.strip().split(' ')
 			LETS[letter] = f'Cyrillic_{name}'
 			LETS[letter.upper()] = f'Cyrillic_{name.upper()}'
+
+		for line in cyr_other.split('\n'):
+			line = line[2:]
+			if len(line) == 0:
+				continue
+			letter, prefix, name, postfix = line.split(' ')
+			if prefix == '':
+				prefix = 'Cyrillic'
+			if postfix != '':
+				postfix = '_' + postfix
+			LETS[letter] = f'{prefix}_{name}{postfix}'
+			LETS[letter.upper()] = f'{prefix}_{name.upper()}{postfix}'
 
 		names = r'''
 		` backtick
