@@ -322,7 +322,16 @@ class Keyboard:
 			
 			(k1.ftype > k2.ftype + 1 and k2.row == k1.row, 0, 'in, over 1 finger, same row'),
 			(k1.ftype > k2.ftype + 1 and abs(k2.row - k1.row) == 1, 1, 'in, over 1 finger, adj row'),
-			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row, 2, 'in, adj finger, same or adj row'),
+			
+			(k1.ftype == 1 and k2.ftype == 2 and k1.row - 1 == k2.row, 8, 'out, from index in a row above, to middle'),
+			(k1.ftype == 2 and k2.ftype == 1 and k1.row + 1 == k2.row, 8, 'in, middle to to index in a row above'),
+			(k1.ftype == 1 and k2.ftype == 2 and k1.row + 1 == k2.row, 4, 'out, from index in a row below, to middle'),
+			(k1.ftype == 2 and k2.ftype == 1 and k1.row - 1 == k2.row, 4, 'in, middle to to index in a row below'),
+
+			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row and k1.ftype > 1, 4, 'in, adj finger, adj row'),
+			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row and k1.ftype > 1, 6, 'out, adj finger, adj row'),
+
+			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row, 2, 'in, adj finger, same row'),
 			(k1.ftype > k2.ftype and k2.row > k1.row, 1, 'in, lower row'),
 			
 			(k1.ftype == 1 and k2.ftype == 2 and k1.row == k2.row, 1, 'index->middle same row'),
@@ -392,11 +401,11 @@ class Keyboard:
 				dx, dy = KEYCAP_LAYER_SHIFTS[layer]
 				
 				# same shifting for text
-				text_y = y + dy * h + - h / 2 + 1 - .1
+				text_y = y + dy * h + - h / 2 + 1
 				text_x = x + dx * w + w / 2
 				
 				font_size = 14 if layer == 0 else 10
-				plt.text(text_x, text_y, cap, fontdict={
+				plt.text(text_x, text_y, cap, va='center', fontdict={
 					**font, 'color':  '#000', 'size': font_size}) # if key.get('c', 0) else '#444444'})
 		
 		ax.set_xlim(min_x - .25, max_x + .25)
@@ -876,13 +885,15 @@ class Result:
 			elif show_nums:
 				total = self.bigrams['num'].sum()
 
-				nums = self.bigrams.groupby(['row', 'column']).agg({'num': 'sum'})['num']
+				gr = self.bigrams.groupby(['row', 'column']).agg({'num': 'sum', 'l2': 'first'})
+				signs = gr.apply(lambda r: f'{r["l2"]}\n{r["num"]}', axis=1)
+				nums = gr['num']
 
 				min_num = nums.min()
 				max_num = nums.max()
 				colors = nums.apply(color_scale, args=(min_num, max_num, plt.cm.viridis))
 				self.layout.keyboard.raw_display(
-					nums.to_dict(), colors.to_dict(), f'{self.layout.name} frequencies (on 2nd keys of bigrams)')
+					signs.to_dict(), colors.to_dict(), f'{self.layout.name} frequencies (on 2nd keys of bigrams)')
 
 			elif show_arrows:
 				_, width, height = self.layout.keyboard.key_coords()
@@ -890,7 +901,7 @@ class Result:
 				self.show_arrows(ax)
 
 			else:
-				raise ValueError('what must be \`cost\` or \`freq\`.')
+				raise ValueError('what must be `cost` or `freq`.')
 
 	def show_arrows(self, ax=None, max_num=None, costs=None):
 		letters = self.bigrams[self.bigrams.l1 != '⌴'][['column1', 'row1', 'num', 'cost']].groupby(['column1', 'row1']).agg({'num': 'sum', 'cost': 'sum'})
@@ -1014,6 +1025,10 @@ class Result:
 			ax.annotate(r['letter'].replace('¶', '\\n'), (r['num2'] + 1000, r['cost2']))
 		ax.set_title(f'Comparison of {self.layout.name} (blue) and {other.layout.name} (red)')
 
+	def load_bars(self, ax=None):
+		d = self.bigrams
+		d = d[d.finger != 4].groupby('finger').agg({'num': 'sum'})
+		d.plot.bar(title=self.layout.name, legend=False, ax=ax)
 
 def compare(results_dict, key1, key2):
 	return results_dict[key1].compare(results_dict[key2])
