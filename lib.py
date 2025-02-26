@@ -241,12 +241,6 @@ class Keyboard:
 				self.homes[i] = (0, 0)
 			elif pos is None:
 				raise ValueError(f'finger {i} has no home position. Add "{HOME_POS_NUMS[i]}" somewhere.')
-		#print('HOMES', self.homes)
-		for (ir, ic), p in parse_layer(penalties).items():
-			if (ir, ic) not in self.keymap:
-				raise ValueError("Penalties map doesn't match fingers map!")
-			
-			self.keymap[(ir, ic)]['penalty'] = int(p)
 
 		for (ir, ic), r in parse_layer(hand_reach).items():
 			if (ir, ic) not in self.keymap:
@@ -265,6 +259,10 @@ class Keyboard:
 
 				row_cost, row_cat = self.get_row_shift_cost((r1, c1), (r2, c2))
 				col_cost, col_cat = self.get_col_shift_cost((r1, c1), (r2, c2))
+
+				# penalty for key2 for just being out of default position
+				# calculate penalty, = abs(reach - 1) + abs(delta col)
+				k2penalty = abs(key2['reach'] - 1) + abs(self.homes[key2['finger']][1] - c2) # .homes store [row, col], we need col
 
 				self.bigrams[(r1, c1, r2, c2)] = {
 					'row_cost': row_cost,
@@ -803,7 +801,7 @@ class Result:
 			.merge(layout.keyboard.bigrams, left_on=['row1', 'column1', 'row2', 'column2'], right_index=True, how='left')
 			.merge(layout.keyboard.keymap, left_on=['row2', 'column2'], right_index=True)
 		)
-		b['cost'] = b['num'] * (b['row_cost'] * 3 + b['col_cost'] * 2 + b['k2penalty'] + b['rollout'])
+		b['cost'] = b['num'] * (b['row_cost'] * 3 + b['col_cost'] * 2 + b['k2penalty'] + b['rollout'] * 4)
 
 		self.bigrams = b
 		self.corpus = corpus # it's not copied here, just a pointer
