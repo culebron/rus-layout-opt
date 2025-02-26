@@ -18,7 +18,7 @@ BASE_KEYS_RU = set('ё-!?%*():;йцукенгшщзхъфывапролджэя�
 
 # abcde fghij = home positions of 0..9 respectively
 STANDARD_FINGERS = '''
-001233 6678999
+111123 3678888
 001233 66789999
  abcd3 6ghij99
  01233 66789
@@ -32,6 +32,24 @@ STANDARD_PENALTIES = '''
  21114 41112
 0
 '''
+
+STANDARD_REACH = r'''
+753444 5733456
+443224 53223456
+ 11122 2211123
+ 10014 41001
+0
+'''
+
+# pos penalty: abs(1 - reach)
+# coord penalty:
+# 	abs(reach1 - reach2) if same hand
+# 	+ 1 if adjacent finger
+
+# hand turn penalty:
+# abs of shift1 - shift2
+# e.g. col shift @key1 = +2, @key 2 = -1, total = +3 = abs(2 - - 1 = 3)
+# @key1 = -2, @key2 = +2, total = 4 = abs(-2 - 2)
 
 # before 21.12.24
 # STANDARD_PENALTIES = '''
@@ -137,7 +155,7 @@ def parse_layer(text):
 				keys_map[(ir, ic)] = f
 	return keys_map
 
-def make_key(row, column, finger: int, penalty: int = 0):
+def make_key(row, column, finger: int, penalty: int = 0, reach: int = 0):
 	return {
 		'row': row,
 		'column': column,
@@ -145,6 +163,7 @@ def make_key(row, column, finger: int, penalty: int = 0):
 		'ftype': floor(abs(4.5 - finger)),  # number in its hand (thumb = 0, pinky = 4)
 		'hand': (0 if finger < 4.5 else 1), # hand numebre. Left = 0, right = 1
 		'penalty': penalty, # position penalty (ie. monogram). From POS_PENALTY
+		'reach': reach
 	}
 	
 KEYCAP_LAYER_SHIFTS = {
@@ -168,7 +187,7 @@ def color_scale(val, min_val, max_val, scale=plt.cm.plasma, lighten=.5):
 HOME_POS_NUMS = 'abcdefghij'
 class Keyboard:
 	"""Keeps fingers and penalties map of a model or a fingers positioning scheme."""
-	def __init__(self, name, fingers, penalties, key_shape=None, extra_keys=None):
+	def __init__(self, name, fingers, penalties, hand_reach=None, key_shape=None, extra_keys=None):
 		"""Creates the instance. Fingers and penalties are strings with lines as rows,
 		and line positions of chars as columns. They must match exactly.
 		
@@ -180,6 +199,13 @@ class Keyboard:
 			Letters a..j denote home positions for 0..9 respectively.
 			Penalties map and layouts must reproduce these positions.
 		- penalties, str: integer penalties in the same positions.
+		- hand_reach, str: map, like penalties and fingers, of grades how much you must lower the hand or
+			ever lift it low you put the hand
+			(or lower it) to reach the key. E.g. to reach key '8' the middle finger must extend to maximum,
+			and the hand lie almost flat. The key '<' on QWERTY is very close, so the hand must be risen
+			at maximum. To reach top row with index finger, you need to lower the hand at max, but index
+			finger can touch the lower row without moving the hand. TODO: this should probably be
+			measured with skeleton simulation.
 		- key_display, function: a callback that processes a key to be rendered.
 			Like adding stagger, depending on row/column.
 			Input params: (x: float, y: float, width: float, height: float, keycap: list[str])
@@ -222,21 +248,31 @@ class Keyboard:
 			
 			self.keymap[(ir, ic)]['penalty'] = int(p)
 
+		for (ir, ic), r in parse_layer(hand_reach).items():
+			if (ir, ic) not in self.keymap:
+				raise ValueError("Reach map doesn't match fingers map!")
+
+			self.keymap[(ir, ic)]['reach'] = int(r)
+
 		self.keymap = pd.DataFrame.from_dict(self.keymap, orient='index')
 		self.bigrams = {}
 		self.monograms = {}
 		
 		for (r1, c1), key1 in self.keymap.iterrows():
 			for (r2, c2), key2 in self.keymap.iterrows():
-				coord_cost, coord_cat = self.get_coord_cost((r1, c1), (r2, c2))
-				voff, hoff, move_cost, move_cat = self.get_move_cost((r1, c1), (r2, c2))
+				rollout = 1 if key1['hand'] == key2['hand'] and key2['ftype'] > key1['ftype'] else 0
+				k2penalty = key2['penalty']
+
+				row_cost, row_cat = self.get_row_shift_cost((r1, c1), (r2, c2))
+				col_cost, col_cat = self.get_col_shift_cost((r1, c1), (r2, c2))
+
 				self.bigrams[(r1, c1, r2, c2)] = {
-					'coord_cost': coord_cost,
-					'coord_cat': coord_cat,
-					'move_cost': move_cost,
-					'move_cat': move_cat,
-					'voff': voff,
-					'hoff': hoff,
+					'row_cost': row_cost,
+					'row_cat': row_cat,
+					'col_cost': col_cost,
+					'col_cat': col_cat,
+					'rollout': rollout,
+					'k2penalty': k2penalty
 				}
 
 		self.bigrams = pd.DataFrame.from_dict(self.bigrams, orient='index')
@@ -269,30 +305,22 @@ class Keyboard:
 		
 		return self.keymap[(row, column)].penalty
 
-	def get_move_cost(self, pos1, pos2):
+	def get_col_shift_cost(self, pos1, pos2):
 		k1 = self.keymap.loc[pos1]
 		k2 = self.keymap.loc[pos2]
 
 		h1 = self.homes[k1.finger]
-		voff1 = h1[0] - pos1[0]
-		hoff1 = h1[1] - pos1[1]
-		offset1 = abs(voff1 ** 2 + hoff1 ** 2)
-
-		h2 = self.homes[k2.finger]
-		voff2 = h2[0] - pos2[0]
-		hoff2 = h2[1] - pos2[1]
-		offset2 = abs(voff2 ** 2 + hoff2 ** 2)
+		offset1 = h1[1] - pos1[1]
 		
-		hoff = abs(hoff2 - hoff1)
-		voff = abs(voff2 - voff1)
-		offset = abs(offset2 * offset1)
+		h2 = self.homes[k2.finger]
+		offset2 = h2[1] - pos2[1]
 
 		if k1.hand != k2.hand or k1.ftype == 0:
-			return voff2 / 2, hoff2 / 2, offset2 / 2, 'alternating or space'  # if key1 is space or different hand, count only half (half is arbitrary)
+			return offset2 / 2, 'alternating or space'  # if key1 is space or different hand, count only half (half is arbitrary)
+		
+		return abs(offset2 - offset1), 'ok'
 
-		return voff, hoff, offset, 'ok'
-
-	def get_coord_cost(self, pos1, pos2):
+	def get_row_shift_cost(self, pos1, pos2):
 		if pos1 not in self.keymap.index:
 			return 0, 'key 1 not in kbd'
 		k1 = self.keymap.loc[pos1]
@@ -301,50 +329,22 @@ class Keyboard:
 			return 0, 'key 2 not in kbd'
 		k2 = self.keymap.loc[pos2]
 
-		rules = (
-			(k1.ftype == 0 or k2.ftype == 0, 0, 'space bar'),
-			(k1.hand != k2.hand, 0, 'altern hands'),
-			(pos1 == pos2, 0, 'same key'),
+		if k1['hand'] != k2['hand']:
+			return 0, 'alternating hands'
 
-			(abs(k2.row - k1.row) >= 2 and k1.ftype == k2.ftype == 4, 12, 'pinky over row'),
-			(k1.ftype == k2.ftype == 4, 10, 'pinky adj row'),
-			(abs(k2.row - k1.row) >= 2 and k1.ftype == k2.ftype, 8, 'same finger over row'),
-			(k1.ftype == k2.ftype, 6, 'same finger adj row'),
+		if k1['finger'] in (4, 5) or k2['finger'] in (4, 5):
+			return 0, 'thumb'
 
-			(k1.ftype == 1 and k2.ftype == 4, 2, 'index -> pinky'),
-			(k1.ftype == 3 and k2.ftype == 4 and abs(k1.row - k2.row) == 1, 5, 'ring -> pinky, next row'),
-			(k1.ftype == 4 and k2.ftype == 3 and abs(k1.row - k2.row) == 1, 3, 'pinky -> ring, next row'),
+		reach1 = k1['reach']
+		reach2 = k2['reach']
 
-			(abs(k1.ftype - k2.ftype) == 1 and abs(k2.row - k1.row) > 1, 10, 'adj finger over row'),
-			(abs(k1.ftype - k2.ftype) == 2 and abs(k2.row - k1.row) > 1, 8, 'over 1 finger, over 1 row'),
-			(k1.ftype == 4 and k2.ftype == 1 and abs(k2.row - k1.row) > 1, 4, 'pinky -> index over 1 row'),
-			(k1.ftype == 1 and k2.ftype == 4 and abs(k2.row - k1.row) > 1, 6, 'over 2 fingers, over 1 row'),
-			
-			(k1.ftype > k2.ftype + 1 and k2.row == k1.row, 0, 'in, over 1 finger, same row'),
-			(k1.ftype > k2.ftype + 1 and abs(k2.row - k1.row) == 1, 1, 'in, over 1 finger, adj row'),
-			
-			(k1.ftype == 1 and k2.ftype == 2 and k1.row - 1 == k2.row, 8, 'out, from index in a row above, to middle'),
-			(k1.ftype == 2 and k2.ftype == 1 and k1.row + 1 == k2.row, 8, 'in, middle to to index in a row above'),
-			(k1.ftype == 1 and k2.ftype == 2 and k1.row + 1 == k2.row, 4, 'out, from index in a row below, to middle'),
-			(k1.ftype == 2 and k2.ftype == 1 and k1.row - 1 == k2.row, 4, 'in, middle to to index in a row below'),
+		dcol = abs(k2['column'] - k1['column']) + 1
+		dreach = abs(reach2 - reach1)
 
-			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row and k1.ftype > 1, 4, 'in, adj finger, adj row'),
-			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row and k1.ftype > 1, 6, 'out, adj finger, adj row'),
+		if k1['finger'] == k2['finger']:
+			return (dreach + 2) * 5, 'same finger change rows'  # arbitrary
+		return dreach / dcol * 2, ''
 
-			(k1.ftype == k2.ftype + 1 and k2.row <= k1.row, 2, 'in, adj finger, same row'),
-			(k1.ftype > k2.ftype and k2.row > k1.row, 1, 'in, lower row'),
-			
-			(k1.ftype == 1 and k2.ftype == 2 and k1.row == k2.row, 1, 'index->middle same row'),
-			(k2.ftype > k1.ftype, 4, 'out, over one finger'),
-			(k1.ftype + 1 == k2.ftype and k1.row == k2.row, 3, 'out, next finger'),
-			(k1.ftype + 1 == k2.ftype and abs(k1.row - k2.row) >= 1, 5, 'out, next finger'),
-		)
-
-		for cond, penalty, reason in rules:
-			if cond:
-				return penalty, reason
-
-		return 4, 'none'
 
 	def raw_display(self, key_caps=None, colors=None, title=None):
 		all_keys, width, height = self.key_coords()
@@ -377,7 +377,7 @@ class Keyboard:
 			min_x = min(x, min_x)
 			min_y = min(y, min_y)
 			max_x = max(x + w, max_x)
-			max_y = max(y + h, max_y)		
+			max_y = max(y + h, max_y)
 
 			# we draw the rectangle making a outer margin of 0.2.
 			# We just shift the box right-bottom, and make it narrower and lower by 0.4,
@@ -468,7 +468,7 @@ STD_EXTRA_KEYS = [
 	(12.5, 4, 1.25, 1, '▤↖'),
 	(13.75, 4, 1.5, 1, 'Ctrl'),
 ]
-STANDARD_KBD = Keyboard('Standard staggered keyboard', STANDARD_FINGERS, STANDARD_PENALTIES, std_key_shape, STD_EXTRA_KEYS)
+STANDARD_KBD = Keyboard('Standard staggered keyboard', STANDARD_FINGERS, STANDARD_PENALTIES, STANDARD_REACH, std_key_shape, STD_EXTRA_KEYS)
 
 
 ERGODOX_VSTAG = {2: .1, 3: .2, 4: .1, 10: .1, 11: .2, 12: .1} # x => delta y
@@ -520,7 +520,18 @@ ERGODOX = Keyboard('ergodox',
 3211146 6411123
 42222     22224
     000 000
-''', ergodox_key_shape)
+''',
+
+'''
+7544578 8754457
+5322456 6542235
+321123   321123
+2100124 4210012
+00000     00000
+    111 111
+''',
+
+ergodox_key_shape)
 
 
 
@@ -589,25 +600,6 @@ class Layout:
 		k = self.keymap.loc[l]
 		return k['row'], k['column']
 
-	def get_coord_cost(self, bg):
-		l1, l2 = bg
-
-		if l1 not in self.base_keys:
-			return 0, f'L1 "{l1}" not in base keys'
-		if l2 not in self.base_keys:
-			return 0, f'L2 "{l2}" not in base keys'
-
-		pos1 = self.get_pos(l1)
-		pos2 = self.get_pos(l2)
-		if pos1 is None and pos2 is None:
-			return 0, 'l1 and l2 absent'
-		if pos1 is None:
-			return 0, 'l1 absent'
-		if pos2 is None:
-			return 0, 'l2 absent'
-
-		return self.keyboard.get_coord_cost(pos1, pos2)
-
 	def get_monogram_cost(self, l2):
 		"""Simply looks up keymap and gets pos_penalty field. Lowercases the letters."""
 		if l2 not in self.keymap.index:
@@ -623,7 +615,11 @@ class Layout:
 		row = self.keymap.loc[l2]
 		return self.keyboard.get_monogram_cost(row['row'], row['column'])
 
-	def get_move_cost(self, bg):
+	# THE MAIN PENALTIES RULES
+	# Here we assign costs and also put a text name for the reason why bigram got it,
+	# to quickly see WTF is happening
+
+	def get_bigram_cost(self, bg):
 		l1, l2 = bg
 		pos1 = self.get_pos(l1)
 		pos2 = self.get_pos(l2)
@@ -633,13 +629,8 @@ class Layout:
 			return 0, 0, 0, 'l1 absent'
 		if pos2 is None:
 			return 0, 0, 0, 'l2 absent'
-
-		return self.keyboard.get_move_cost(pos1, pos2) * 2
-
-
-	# THE MAIN PENALTIES RULES
-	# Here we assign costs and also put a text name for the reason why bigram got it,
-	# to quickly see WTF is happening
+	
+		return self.keyboard.get_col_shift_cost(pos1, pos2), self.keyboard.get_row_shift_cost(pos1, pos2)
 
 	def keycaps(self):
 		keycaps = defaultdict(list)
@@ -812,7 +803,7 @@ class Result:
 			.merge(layout.keyboard.bigrams, left_on=['row1', 'column1', 'row2', 'column2'], right_index=True, how='left')
 			.merge(layout.keyboard.keymap, left_on=['row2', 'column2'], right_index=True)
 		)
-		b['cost'] = b['num'] * (b['coord_cost'] + b['move_cost'] + b['penalty'] / 2)
+		b['cost'] = b['num'] * (b['row_cost'] * 3 + b['col_cost'] * 2 + b['k2penalty'] + b['rollout'])
 
 		self.bigrams = b
 		self.corpus = corpus # it's not copied here, just a pointer
@@ -820,8 +811,8 @@ class Result:
 		self.score = b.cost.sum() / b.num.sum()
 
 	def compare(self, other):
-		x = self.bigrams[['bigram', 'num', 'coord_cat', 'coord_cost', 'move_cost', 'move_cat', 'cost']].merge(
-			other.bigrams[['bigram', 'coord_cat', 'coord_cost', 'move_cost', 'move_cat', 'cost']],
+		x = self.bigrams[['bigram', 'num', 'row_cat', 'row_cost', 'col_cat', 'col_cost', 'k2penalty', 'rollout', 'cost']].merge(
+			other.bigrams[['bigram', 'row_cat', 'row_cost', 'col_cat', 'col_cost', 'k2penalty', 'rollout', 'cost']],
 			on='bigram', suffixes=['_old', '_new'])
 		x['delta'] = x['cost_new'] - x['cost_old']
 		return x[x.delta != 0].sort_values('delta', ascending=False)
@@ -914,15 +905,17 @@ class Result:
 		x1 = pairs['l1'].map(km['column'])
 		y1 = pairs['l1'].map(km['row'])
 		pairs = pairs.merge(
-		    self.layout.keyboard.keymap[['hand', 'finger']], left_on=['row1', 'column1'], right_index=True, suffixes=('', '1')
+			self.layout.keyboard.keymap[['hand', 'finger']], left_on=['row1', 'column1'], right_index=True, suffixes=('', '1')
 			).merge(
-    		self.layout.keyboard.keymap[['hand', 'finger']], left_on=['row2', 'column2'], right_index=True, suffixes=('', '2')
+			self.layout.keyboard.keymap[['hand', 'finger']], left_on=['row2', 'column2'], right_index=True, suffixes=('', '2')
 		)
 
 		num_threshold = 200
 		pairs2 = pairs[(pairs.hand1 == pairs.hand2) & (pairs.l2 != '¶')
 			& ~pairs.finger1.isin([4, 5]) & ~pairs.finger2.isin([4, 5])
 			& (pairs.num > num_threshold)].copy()
+
+		# pairs2.to_csv(f'/tmp/{}_pairs2.csv')
 
 		all_coords, width, height = self.layout.keyboard.key_coords()
 
@@ -956,6 +949,7 @@ class Result:
 			capstyle='round', linewidth=0, color=color))
 			coords[(ic, ir)] = np.array([X, Y])
 			
+		# import ipdb; ipdb.set_trace()
 		cc = pairs2['cost'] / pairs2['num'] #pairs2['bigram_cost'] = pairs2['coord_cost'] + pairs2['move_cost']
 		max_num = max(pairs2['num'].max() ** .5, max_num or 0)
 		min_cost = cc.min() ** .5
@@ -978,7 +972,7 @@ class Result:
 			delta = coords2 - coords1
 			
 			# print(f'min cost {min_cost}, max cost {max_cost}, bg cost {bg["cost"]} num {bg["num"]}, price {bg["cost"] / bg["num"]}')
-			t = (bg['cost'] / bg['num'] - min_cost) / (max_cost - min_cost)  # why is this not square root?
+			t = ((bg['cost'] / bg['num']) ** .5 - min_cost) / (max_cost - min_cost)
 			ax.arrow(coords1[0], coords1[1], delta[0], delta[1],
 				width=bg['num'] ** .5 / max_num / 4,
 				shape='left', length_includes_head=True, ec='#00000000',
@@ -1002,7 +996,9 @@ class Result:
 		all_heights = sum(i[1][2] for i in layouts) + 1
 		fig, axes = plt.subplots(len(layouts), 1, figsize=(width, all_heights))
 
-		ll = pd.concat([i[0].bigrams for i in layouts])	
+		ll = pd.concat([i[0].bigrams for i in layouts])
+		ll = ll[ll['num'] > 0].copy()
+
 		#ll.to_csv('/tmp/maxcosts.csv')
 		min_cost = (ll['cost'] / ll['num']).min() ** .5
 		max_cost = (ll['cost'] / ll['num']).max() ** .5
