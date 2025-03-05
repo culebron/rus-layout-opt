@@ -85,9 +85,21 @@ def map_letter_types(letter, types):
 
 	return '-'
 
+def make_grams(nums, name, types):
+		grams = pd.DataFrame(nums.items(), columns=[name, 'num'])
+		grams['l1'] = grams[name].str[:1]
+		grams['l2'] = grams[name].str[1:]
+
+		letter_types = [(v, k) for k, v in (types if types is not None else VOW_CONS_RU).items()]
+		for i in (1, 2):
+			grams[f't{i}'] = grams[f'l{i}'].apply(map_letter_types, types=letter_types)
+		grams['freq'] = grams.num / grams.num.sum()
+		return grams
+
 class Corpus:
-	def __init__(self, bigrams):
+	def __init__(self, bigrams, trigrams):
 		self.bigrams = bigrams
+		self.trigrams = trigrams
 		
 	def from_string(raw_text, types=None):
 		# we take text and encode it, replacing space, linebreak and tab with displayable surrogates.
@@ -104,16 +116,14 @@ class Corpus:
 		nums = defaultdict(int)
 		for i in range(2, len(text)):
 			nums[text[i-2:i]] += 1
+		bigrams = make_grams(nums, 'bigram', types)
 
-		bigrams = pd.DataFrame(nums.items(), columns=['bigram', 'num'])
-		bigrams['l1'] = bigrams.bigram.str[:1]
-		bigrams['l2'] = bigrams.bigram.str[1:]
+		nums = defaultdict(int)
+		for i in range(2, len(text)):
+			nums[text[i-2] + text[i]] += 1
+		trigrams = make_grams(nums, 'trigram', types)
 
-		letter_types = [(v, k) for k, v in (types if types is not None else VOW_CONS_RU).items()]
-		for i in (1, 2):
-			bigrams[f't{i}'] = bigrams[f'l{i}'].apply(map_letter_types, types=letter_types)
-		bigrams['freq'] = bigrams.num / bigrams.num.sum()
-		return Corpus(bigrams)
+		return Corpus(bigrams, trigrams)
 		
 	# simple function that reads the corpus and creates a bigram table.
 	def from_path(*paths, types=None):
@@ -795,6 +805,11 @@ class Result:
 	# Gets the cost for input KBD text, bigrams & fingers maps
 	def __init__(self, corpus, layout):
 		bigram_df = corpus.bigrams.copy()
+		# here we merge bigrams with trigrams and count trigrams with half smaller penalty.
+		# trigram penalty is basically penalty for the relationship between the 1st and the 3rd letters
+		bigram_df = bigram_df.merge(corpus.trigrams.copy()[['l1', 'l2', 'num']], on=['l1', 'l2'], suffixes=('', '_tri'))
+		bigram_df['num'] = bigram_df['num'] + bigram_df['num_tri']
+
 		b = (bigram_df
 			.merge(layout.keymap[['row', 'column']], left_on='l1', right_index=True)
 			.merge(layout.keymap[['row', 'column']], left_on='l2', right_index=True, suffixes=('1', '2'))
@@ -816,6 +831,7 @@ class Result:
 		return x[x.delta != 0].sort_values('delta', ascending=False)
 
 	def display(self, *items):
+		"""Display one of these: 'rows', 'layout', 'cost', 'freq', 'arrow'"""
 		for what in items:
 			show_rows = what == 'rows'
 			show_layout = what == 'layout'
