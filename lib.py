@@ -808,7 +808,8 @@ class Result:
 		# here we merge bigrams with trigrams and count trigrams with half smaller penalty.
 		# trigram penalty is basically penalty for the relationship between the 1st and the 3rd letters
 		bigram_df = bigram_df.merge(corpus.trigrams.copy()[['l1', 'l2', 'num']], on=['l1', 'l2'], suffixes=('', '_tri'))
-		bigram_df['num'] = bigram_df['num'] + bigram_df['num_tri']
+		# trigram 
+		bigram_df['num'] = (bigram_df['num'] * 2 + bigram_df['num_tri']) / 3
 
 		b = (bigram_df
 			.merge(layout.keymap[['row', 'column']], left_on='l1', right_index=True)
@@ -891,6 +892,7 @@ class Result:
 				total = self.bigrams['num'].sum()
 
 				gr = self.bigrams.groupby(['row', 'column']).agg({'num': 'sum', 'l2': 'first'})
+				gr['num'] = gr['num'].round().astype(int)
 				signs = gr.apply(lambda r: f'{r["l2"]}\n{r["num"]}', axis=1)
 				nums = gr['num']
 
