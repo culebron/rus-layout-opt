@@ -811,13 +811,15 @@ class Result:
 		# trigram 
 		bigram_df['num'] = (bigram_df['num'] * 2 + bigram_df['num_tri']) / 3
 
+		km = layout.keyboard.keymap.drop(['row', 'column'], axis=1)
 		b = (bigram_df
 			.merge(layout.keymap[['row', 'column']], left_on='l1', right_index=True)
 			.merge(layout.keymap[['row', 'column']], left_on='l2', right_index=True, suffixes=('1', '2'))
 			.merge(layout.keyboard.bigrams, left_on=['row1', 'column1', 'row2', 'column2'], right_index=True, how='left')
-			.merge(layout.keyboard.keymap, left_on=['row2', 'column2'], right_index=True)
+			.merge(km, left_on=['row1', 'column1'], right_index=True)
+			.merge(km, left_on=['row2', 'column2'], right_index=True, suffixes=('1', '2'))
 		)
-		b['cost'] = b['num'] * (b['row_cost'] * 3 + b['col_cost'] * 2 + b['k2penalty'] + b['rollout'] * 4)
+		b['cost'] = b['num'] * (b['row_cost'] * 3 + b['col_cost'] * 2 + b['k2penalty'] + b['rollout'] * 3) # coeffs are arbitrary
 
 		self.bigrams = b
 		self.corpus = corpus # it's not copied here, just a pointer
@@ -891,7 +893,7 @@ class Result:
 			elif show_nums:
 				total = self.bigrams['num'].sum()
 
-				gr = self.bigrams.groupby(['row', 'column']).agg({'num': 'sum', 'l2': 'first'})
+				gr = self.bigrams.groupby(['row2', 'column2']).agg({'num': 'sum', 'l2': 'first'}).rename(columns={'row2': 'row', 'column2': 'column'})
 				gr['num'] = gr['num'].round().astype(int)
 				signs = gr.apply(lambda r: f'{r["l2"]}\n{r["num"]}', axis=1)
 				nums = gr['num']
@@ -920,12 +922,7 @@ class Result:
 		km2 = km.reset_index().set_index(['layer', 'row', 'column'])
 		x1 = pairs['l1'].map(km['column'])
 		y1 = pairs['l1'].map(km['row'])
-		pairs = pairs.merge(
-			self.layout.keyboard.keymap[['hand', 'finger']], left_on=['row1', 'column1'], right_index=True, suffixes=('', '1')
-			).merge(
-			self.layout.keyboard.keymap[['hand', 'finger']], left_on=['row2', 'column2'], right_index=True, suffixes=('', '2')
-		)
-
+		
 		num_threshold = 200
 		pairs2 = pairs[(pairs.hand1 == pairs.hand2) & (pairs.l2 != '¶')
 			& ~pairs.finger1.isin([4, 5]) & ~pairs.finger2.isin([4, 5])
@@ -1039,8 +1036,37 @@ class Result:
 
 	def load_bars(self, ax=None):
 		d = self.bigrams
-		d = d[d.finger != 4].groupby('finger').agg({'num': 'sum'})
+		d = d[d['finger2'] != 4].groupby('finger2').agg({'num': 'sum'})
 		d.plot.bar(title=self.layout.name, legend=False, ax=ax)
+
+	def better_side(self):
+		b = self.bigrams
+		x = b[(b.t1.isin(['c', 'v'])) & (b.t2.isin(['c', 'v']))].copy()
+		hand_aft = x.groupby(['l1', 'hand2']).agg({'num': 'sum'})
+		hand_before = x.groupby(['l2', 'hand1']).agg({'num': 'sum'})
+		y = hand_before.reset_index().merge(hand_aft.reset_index(), how='outer', left_on=['l2', 'hand1'], right_on=['l1', 'hand2'])
+		y = y.rename(columns={'l2': 'l', 'hand1': 'hand', 'num_x': 'before', 'num_y': 'after'})[['l', 'hand', 'before', 'after']]
+		y['diff'] = np.min(y[['before', 'after']], axis=1)
+		y_left = y[y.hand == 0][['l', 'before', 'after', 'diff']]
+		y_right = y[y.hand == 1][['l', 'before', 'after', 'diff']]
+
+		f = b.groupby('l2').agg({'num': 'sum'}).rename(columns={'num' :'freq'})
+		f['freq'] = f['freq'].round().astype(int)
+		z = y_left.merge(y_right, on='l', how='outer', suffixes=('_left', '_right')).merge(f, left_on='l', right_index=True)
+		cols = ['diff_left', 'diff_right', 'before_left', 'before_right', 'after_left', 'after_right']
+		z[cols] = z[cols].fillna(0).round().astype(int)
+		z['left_benefit'] = z['diff_right'] - z['diff_left']
+
+		return (z
+			.sort_values('left_benefit', ascending=False)
+			.rename(columns={'before_left': 'L before', 'before_right': 'R before',
+			'after_left': 'L after', 'after_right': 'R after', 'diff_left': 'L difficulty',
+			'diff_right': 'R diff.', 'left_benefit': 'Benefit if on L', 'freq': 'Freq-cy'})
+			.style
+			.background_gradient(axis=0, cmap='RdBu', subset=['Benefit if on L'])
+			.background_gradient(axis=0, cmap='coolwarm', subset=['L difficulty', 'R diff.'])
+			.background_gradient(axis=0, cmap='seismic', subset=['Freq-cy'])
+		)
 
 def compare(results_dict, key1, key2):
 	return results_dict[key1].compare(results_dict[key2])
