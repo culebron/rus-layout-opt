@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 pd.options.display.max_rows = 100
+
 from math import floor
 from collections import defaultdict
 
@@ -78,6 +79,7 @@ STANDARD_REACH = r'''
 # 0
 # """
 
+
 def map_letter_types(letter, types):
 	for letters, tp in types:
 		if letter in letters:
@@ -85,16 +87,18 @@ def map_letter_types(letter, types):
 
 	return '-'
 
-def make_grams(nums, name, types):
-		grams = pd.DataFrame(nums.items(), columns=[name, 'num'])
-		grams['l1'] = grams[name].str[:1]
-		grams['l2'] = grams[name].str[1:]
 
-		letter_types = [(v, k) for k, v in (types if types is not None else VOW_CONS_RU).items()]
-		for i in (1, 2):
-			grams[f't{i}'] = grams[f'l{i}'].apply(map_letter_types, types=letter_types)
-		grams['freq'] = grams.num / grams.num.sum()
-		return grams
+def make_grams(nums, name, types):
+	grams = pd.DataFrame(nums.items(), columns=[name, 'num'])
+	grams['l1'] = grams[name].str[:1]
+	grams['l2'] = grams[name].str[1:]
+
+	letter_types = [(v, k) for k, v in (types if types is not None else VOW_CONS_RU).items()]
+	for i in (1, 2):
+		grams[f't{i}'] = grams[f'l{i}'].apply(map_letter_types, types=letter_types)
+	grams['freq'] = grams.num / grams.num.sum()
+	return grams
+
 
 class Corpus:
 	def __init__(self, bigrams, trigrams):
@@ -142,6 +146,7 @@ class Corpus:
 
 		E.g. English S more often comes first among consonants.
 		So it will be on the right (towards right hand pinky)."""
+
 		d2 = self.bigrams[self.bigrams.eval(filter_expr)]
 		t2 = d2.groupby('l1').agg({'freq': 'sum'}).join(d2.groupby('l2').agg({'freq': 'sum'}), how='outer', lsuffix='_out', rsuffix='_in')
 		t2.fillna(0, inplace=True)
@@ -156,6 +161,7 @@ class Corpus:
 
 		return t2.sort_values('outerness') # to readable numbers
 
+
 def parse_layer(text):
 	"Parses text of a layer of layout, fingers or position penalties."
 	keys_map = {}
@@ -164,6 +170,7 @@ def parse_layer(text):
 			if f != ' ' and f != '∅':
 				keys_map[(ir, ic)] = f
 	return keys_map
+
 
 def make_key(row, column, finger: int, penalty: int = 0, reach: int = 0):
 	return {
@@ -175,7 +182,8 @@ def make_key(row, column, finger: int, penalty: int = 0, reach: int = 0):
 		'penalty': penalty, # position penalty (ie. monogram). From POS_PENALTY
 		'reach': reach
 	}
-	
+
+
 KEYCAP_LAYER_SHIFTS = {
 	0: (0, 0),
 	1: (-.2, .2),
@@ -195,6 +203,8 @@ def color_scale(val, min_val, max_val, scale=plt.cm.plasma, lighten=.5):
 
 
 HOME_POS_NUMS = 'abcdefghij'
+
+
 class Keyboard:
 	"""Keeps fingers and penalties map of a model or a fingers positioning scheme."""
 	def __init__(self, name, fingers, penalties, hand_reach=None, key_shape=None, extra_keys=None):
@@ -303,8 +313,8 @@ class Keyboard:
 			
 			all_keys.append((ir, ic, x, y, w, h, None))
 		
-		width = max(i[2] + i[4] for i in all_keys) - min(i[2] for i in all_keys)		 
-		height = max(i[3] + i[5] for i in all_keys) - min(i[3] for i in all_keys) 
+		width = max(i[2] + i[4] for i in all_keys) - min(i[2] for i in all_keys)
+		height = max(i[3] + i[5] for i in all_keys) - min(i[3] for i in all_keys)
 		return all_keys, width, height
 		
 	def get_monogram_cost(self, row, column):
@@ -353,7 +363,6 @@ class Keyboard:
 			return (dreach + 2) * 5, 'same finger change rows'  # arbitrary
 		return dreach / dcol * 2, ''
 
-
 	def raw_display(self, key_caps=None, colors=None, title=None):
 		all_keys, width, height = self.key_coords()
 		for (x, y, w, h, cap) in self.extra_keys:
@@ -392,8 +401,8 @@ class Keyboard:
 			# so that all keys are still referred by key size (1 unit = 20mm),
 			# and this is done consistently everywhere.
 			ax.add_patch(Rectangle((x + .2, y + .2 - h + 1), w - .4, h - .4,
-			   color=key_color, ec=key_color, 
-			   capstyle='round', linewidth=15, linestyle='-', joinstyle='round'))
+				color=key_color, ec=key_color, 
+				capstyle='round', linewidth=15, linestyle='-', joinstyle='round'))
 			
 			if key_caps is None:
 				continue
@@ -414,12 +423,12 @@ class Keyboard:
 				
 				font_size = 14 if layer == 0 else 10
 				plt.text(text_x, text_y, cap, va='center', fontdict={
-					**font, 'color':  '#000', 'size': font_size}) # if key.get('c', 0) else '#444444'})
+					**font, 'color':  '#000', 'size': font_size})  # if key.get('c', 0) else '#444444'})
 		
 		ax.set_xlim(min_x - .25, max_x + .25)
 		ax.set_ylim(min_y - .25, max_y + .25)
 		return ax
-		
+	
 	def display(self):
 		"""
 		Displays the keyboard. Empty or with `key_caps` from a layout.
@@ -429,17 +438,19 @@ class Keyboard:
 		
 		return self.raw_display(
 			key_caps=self.keymap['penalty'].to_dict(),
-			colors= self.keymap['penalty'].apply(color_scale, args=(0, max_pen)).to_dict(),
+			colors=self.keymap['penalty'].apply(color_scale, args=(0, max_pen)).to_dict(),
 			title=f'{self.name} with monogram penalties'
 		)
 
-ROW_STAGGER = { 0: 0, 1: .5, 2: .75, 3: 1.25, 4: 1.75 }
-				
+
+ROW_STAGGER = {0: 0, 1: .5, 2: .75, 3: 1.25, 4: 1.75}
+
+
 def std_key_shape(x, y, w, h):
 	if x > 6:
 		x -= 1
 
-	if x == 0 and y == 1: # '→':
+	if x == 0 and y == 1:  # '→':
 		x -= .5
 		w = 1.5
 	
@@ -447,10 +458,10 @@ def std_key_shape(x, y, w, h):
 		w = 5.25
 		x = 2.75
 		
-	if y == 1 and x == 13: # the / key above the enter
+	if y == 1 and x == 13:  # the / key above the enter
 		w = 1.75
 	
-	if y == 2 and x == 12: # enter
+	if y == 2 and x == 12:  # enter
 		w = 2.5
 		
 	if y not in ROW_STAGGER: 
@@ -459,7 +470,8 @@ def std_key_shape(x, y, w, h):
 	x += ROW_STAGGER[y]
 
 	return x, y, w, h
-		
+
+
 STD_EXTRA_KEYS = [
 	(13, 0, 2.25, 1, '← Backspace'),
 	
@@ -476,10 +488,12 @@ STD_EXTRA_KEYS = [
 	(12.5, 4, 1.25, 1, '▤↖'),
 	(13.75, 4, 1.5, 1, 'Ctrl'),
 ]
+
+
 STANDARD_KBD = Keyboard('Standard staggered keyboard', STANDARD_FINGERS, STANDARD_PENALTIES, STANDARD_REACH, std_key_shape, STD_EXTRA_KEYS)
+ERGODOX_VSTAG = {2: .1, 3: .2, 4: .1, 10: .1, 11: .2, 12: .1}  # x => delta y
 
 
-ERGODOX_VSTAG = {2: .1, 3: .2, 4: .1, 10: .1, 11: .2, 12: .1} # x => delta y
 def ergodox_key_shape(x, y, w, h):
 	if x == 0 and y <= 3:
 		w = 1.75
@@ -518,7 +532,7 @@ ERGODOX = Keyboard('ergodox',
 0012333 6667899
 00123     67899
     e44 55f
-''', # ehm... in reality, I press the outermost keys on the top row with the ring fingers, not pinky, so...
+''',  # ehm... in reality, I press the outermost keys on the top row with the ring fingers, not pinky, so...
 # maybe it's better to write the real usage here...
 
 '''
@@ -540,7 +554,6 @@ ERGODOX = Keyboard('ergodox',
 ''',
 
 ergodox_key_shape)
-
 
 
 class Layout:
@@ -582,7 +595,7 @@ class Layout:
 			for (ir, ic), k in layer.items():
 				if debug: print(il, ir, ic, k, (ir, ic) in keyboard.keymap.index)
 				if k != '∅' and (ir, ic) in keyboard.keymap.index:
-					key = keyboard.keymap.loc[(ir, ic)]
+					#key = keyboard.keymap.loc[(ir, ic)]
 					data[k] = {
 						'layer': il, 'row': ir, 'column': ic,
 						'key_count': key_counts[k],
@@ -600,19 +613,19 @@ class Layout:
 		r = self.keymap[letter]
 		return self.keyboard.keymap[(r['row'], r['column'])]
 
-	def get_pos(self, l):
-		if l not in self.keymap.index:
-			print('letter "{l}" not in keymap')
+	def get_pos(self, letter):
+		if letter not in self.keymap.index:
+			print('letter "{letter}" not in keymap')
 			return None
 
-		k = self.keymap.loc[l]
+		k = self.keymap.loc[letter]
 		return k['row'], k['column']
 
 	def get_monogram_cost(self, l2):
 		"""Simply looks up keymap and gets pos_penalty field. Lowercases the letters."""
 		if l2 not in self.keymap.index:
 			if l2.lower() in self.keymap.index:
-				l2 = l2.lower() # here we should but don't penalize Shift/AltGr pressing
+				l2 = l2.lower()  # here we should but don't penalize Shift/AltGr pressing
 			else:
 				if l2 in self.base_keys or l2.lower() in self.base_keys:
 					print(l2)
@@ -651,7 +664,7 @@ class Layout:
 		Shows the layout with the keyboard.
 		"""
 		colors = self.keymap.merge(self.keyboard.keymap, on=['row', 'column']).groupby(['row', 'column']).agg({'finger': 'first'})['finger'].apply(lambda f:
-				 lighten_color(plt.cm.Set3((f + (f % 2) * 10) / 20), .5)).to_dict()
+					lighten_color(plt.cm.Set3((f + (f % 2) * 10) / 20), .5)).to_dict()
 		self.keyboard.raw_display(self.keycaps(), colors, f"{self.name} layout with finger zones")
 
 	def export(self):
@@ -822,8 +835,8 @@ class Result:
 		b['cost'] = b['num'] * (b['row_cost'] * 3 + b['col_cost'] * 2 + b['k2penalty'] + b['rollout'] * 3) # coeffs are arbitrary
 
 		self.bigrams = b
-		self.corpus = corpus # it's not copied here, just a pointer
-		self.layout = layout # also not copied
+		self.corpus = corpus  # it's not copied here, just a pointer
+		self.layout = layout  # also not copied
 		self.score = b.cost.sum() / b.num.sum()
 
 	def compare(self, other):
@@ -891,15 +904,15 @@ class Result:
 					df['meancost'].round(2).to_dict(), colors, f'{self.layout.name} costs (on 2nd keys of bigrams)')
 
 			elif show_nums:
-				total = self.bigrams['num'].sum()
+				# total = self.bigrams['num'].sum()
 
 				gr = self.bigrams.groupby(['row2', 'column2']).agg({'num': 'sum', 'l2': 'first'}).rename(columns={'row2': 'row', 'column2': 'column'})
 				gr['num'] = gr['num'].round().astype(int)
 				signs = gr.apply(lambda r: f'{r["l2"]}\n{r["num"]}', axis=1)
-				nums = gr['num']
+				nums = gr.sort_values('num')['num']
 
-				min_num = nums.min()
-				max_num = nums.max()
+				min_num = nums.iloc[0]
+				max_num = nums.iloc[-2]
 				colors = nums.apply(color_scale, args=(min_num, max_num, plt.cm.viridis))
 				self.layout.keyboard.raw_display(
 					signs.to_dict(), colors.to_dict(), f'{self.layout.name} frequencies (on 2nd keys of bigrams)')
@@ -920,8 +933,8 @@ class Result:
 		pairs = self.bigrams
 		km = self.layout.keymap.reset_index().merge(self.layout.keyboard.keymap, on=['row', 'column']).set_index('index')
 		km2 = km.reset_index().set_index(['layer', 'row', 'column'])
-		x1 = pairs['l1'].map(km['column'])
-		y1 = pairs['l1'].map(km['row'])
+		# x1 = pairs['l1'].map(km['column'])
+		# y1 = pairs['l1'].map(km['row'])
 		
 		num_threshold = 200
 		pairs2 = pairs[(pairs.hand1 == pairs.hand2) & (pairs.l2 != '¶')
@@ -963,7 +976,7 @@ class Result:
 			coords[(ic, ir)] = np.array([X, Y])
 			
 		# import ipdb; ipdb.set_trace()
-		cc = pairs2['cost'] / pairs2['num'] #pairs2['bigram_cost'] = pairs2['coord_cost'] + pairs2['move_cost']
+		cc = pairs2['cost'] / pairs2['num']  # pairs2['bigram_cost'] = pairs2['coord_cost'] + pairs2['move_cost']
 		max_num = max(pairs2['num'].max() ** .5, max_num or 0)
 		min_cost = cc.min() ** .5
 		max_cost = cc.max() ** .5
@@ -997,8 +1010,8 @@ class Result:
 		l2 = filtered.rename(columns={'l2': 'l'})[['l', 'cost', 'num']]
 		ll = pd.concat([l1, l2]).groupby('l').agg({'cost': 'sum', 'num': 'sum'})
 		ll = ll.merge(self.layout.keymap[['layer', 'row', 'column']], left_index=True, right_index=True
-				 ).reset_index(names='letter').groupby(['layer', 'row', 'column']
-				 ).agg({'cost': 'sum', 'num': 'sum', 'letter': 'first'})
+				).reset_index(names='letter').groupby(['layer', 'row', 'column']
+				).agg({'cost': 'sum', 'num': 'sum', 'letter': 'first'})
 
 		ll['price'] = ll.cost / ll.num
 		return ll
@@ -1012,13 +1025,13 @@ class Result:
 		ll = pd.concat([i[0].bigrams for i in layouts])
 		ll = ll[ll['num'] > 0].copy()
 
-		#ll.to_csv('/tmp/maxcosts.csv')
+		# ll.to_csv('/tmp/maxcosts.csv')
 		min_cost = (ll['cost'] / ll['num']).min() ** .5
 		max_cost = (ll['cost'] / ll['num']).max() ** .5
 		max_num = ll['num'].max() ** .5
 
 		plt.text(width / 2, all_heights / len(layouts) + .5, 'Layouts comparison.\nArrow size = frequency, color = total cost.\nKey size = its bigrams cost, color = mean price.\nScales are the same.',
-			 size=14, ha='center')
+			size=14, ha='center')
 		for (result, (all_coords, width, height)), ax in zip(layouts, axes):
 			result.show_arrows(ax, max_num, (min_cost, max_cost))
 
@@ -1037,11 +1050,13 @@ class Result:
 	def load_bars(self, ax=None):
 		d = self.bigrams
 		d = d[d['finger2'] != 4].groupby('finger2').agg({'num': 'sum'})
-		d.plot.bar(title=self.layout.name, legend=False, ax=ax)
+		ax = d.plot.bar(title=self.layout.name, legend=False, ax=ax)
+		return ax
 
 	def better_side(self):
 		b = self.bigrams
-		x = b[(b.t1.isin(['c', 'v'])) & (b.t2.isin(['c', 'v']))].copy()
+		# keep only letters
+		x = b[(b.t1 != '-') & (b.t2 != '-')].copy()
 		hand_aft = x.groupby(['l1', 'hand2']).agg({'num': 'sum'})
 		hand_before = x.groupby(['l2', 'hand1']).agg({'num': 'sum'})
 		y = hand_before.reset_index().merge(hand_aft.reset_index(), how='outer', left_on=['l2', 'hand1'], right_on=['l1', 'hand2'])
@@ -1050,6 +1065,7 @@ class Result:
 		y_left = y[y.hand == 0][['l', 'before', 'after', 'diff']]
 		y_right = y[y.hand == 1][['l', 'before', 'after', 'diff']]
 
+		# calculate letter frequencies independently from its couples
 		f = b.groupby('l2').agg({'num': 'sum'}).rename(columns={'num' :'freq'})
 		f['freq'] = f['freq'].round().astype(int)
 		z = y_left.merge(y_right, on='l', how='outer', suffixes=('_left', '_right')).merge(f, left_on='l', right_index=True)
@@ -1068,6 +1084,6 @@ class Result:
 			.background_gradient(axis=0, cmap='seismic', subset=['Freq-cy'])
 		)
 
+
 def compare(results_dict, key1, key2):
 	return results_dict[key1].compare(results_dict[key2])
-
