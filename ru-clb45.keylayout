@@ -1,7 +1,7 @@
 <?xml version="1.1" encoding="utf-8"?>
 <!DOCTYPE keyboard SYSTEM "file://localhost/System/Library/DTDs/KeyboardLayout.dtd">
-<!--Last edited by KbdEdit version 25.1.0 3467-3613 on 2025-06-04 at 17:41 (GMT+0)-->
-<keyboard group="126" id="-20043" maxout="1" name="RU">
+<!--Last edited by KbdEdit version 25.1.0 3467-3613 on 2025-06-04 at 19:13 (GMT+0)-->
+<keyboard group="126" id="-20043" maxout="1" name="US">
 	<layouts>
 		<layout first="0" last="0" mapSet="16c" modifiers="f4"/>
 	</layouts>
@@ -70,11 +70,11 @@
 			<key code="40" output="т"/>
 			<key code="41" output="с"/>
 			<key code="42" output="/"/>
-			<key code="43" output="п"/>
-			<key code="44" output="/"/>
+			<key code="43" output="к"/>
+			<key code="44" output="б"/>
 			<key code="45" output="й"/>
-			<key code="46" output="к"/>
-			<key code="47" output="б"/>
+			<key code="46" output="р"/>
+			<key code="47" output="п"/>
 			<key code="48" output="&#x0009;"/>
 			<key code="49" output=" "/>
 			<key code="50" output="ъ"/>
@@ -169,11 +169,11 @@
 			<key code="40" output="Т"/>
 			<key code="41" output="с"/>
 			<key code="42" output="/"/>
-			<key code="43" output="п"/>
-			<key code="44" output="/"/>
+			<key code="43" output="к"/>
+			<key code="44" output="б"/>
 			<key code="45" output="Й"/>
-			<key code="46" output="К"/>
-			<key code="47" output="б"/>
+			<key code="46" output="Р"/>
+			<key code="47" output="п"/>
 			<key code="48" output="&#x0009;"/>
 			<key code="49" output=" "/>
 			<key code="50" output="ъ"/>
@@ -271,7 +271,7 @@
 			<key code="43" output="П"/>
 			<key code="44" output="?"/>
 			<key code="45" output="Й"/>
-			<key code="46" output="К"/>
+			<key code="46" output="Р"/>
 			<key code="47" output="Б"/>
 			<key code="48" output="&#x0009;"/>
 			<key code="49" output=" "/>
@@ -360,7 +360,7 @@
 			<key code="43" output="П"/>
 			<key code="44" output="?"/>
 			<key code="45" output="й"/>
-			<key code="46" output="к"/>
+			<key code="46" output="р"/>
 			<key code="47" output="Б"/>
 			<key code="48" output="&#x0009;"/>
 			<key code="49" output=" "/>
